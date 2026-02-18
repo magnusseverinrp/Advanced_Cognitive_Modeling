@@ -1,0 +1,96 @@
+---
+title: "ACM portfolio 1"
+author: "Magnus Severin Ringgaard Poulsen"
+date: "2026-02-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+## Setup 
+```{r}
+pacman::p_load(tidyverse, patchwork)
+```
+
+```{r}
+trials <- 120  
+
+agents <- 100  
+```
+
+
+## Win-Stay-Lose-Shirt Agent 
+```{r}
+WSLS_agent_f <- function(prev_round_choice, feedback) {
+  
+  choice <- ifelse(feedback == 1, prev_round, 1 - prev_round)
+
+  return(choice)
+}
+```
+
+## Reinforcement Learning Agent
+```{r}
+rl_agent_f(prev_round_choice, feedback, alpha = 0.1) { ##????
+  
+  
+  
+  return(choice)
+}
+```
+
+
+## Simulating 
+```{r}
+wsls1_choices <- rep(NA, trials)
+wsls2_choices <- rep(NA, trials)
+feedback_wsls1 <- rep(NA, trials)
+
+wsls1_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 
+wsls2_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 
+
+for (t in 2:trials) {
+  # Feedback for agent 1 from previous trial (wins if match)
+  prev_feedback1 <- ifelse(wsls1_choices[t - 1] == wsls2_choices[t - 1], 1, 0)
+  feedback_wsls1[t - 1] <- prev_feedback1
+
+  # Feedback for agent 2 (opponent) is the opposite (wins if mismatch)
+  prev_feedback2 <- 1 - prev_feedback1
+
+  # Both agents choose based on their own previous feedback
+  wsls1_choices[t] <- WSLS_agent_f(wsls1_choices[t - 1], prev_feedback1)
+  wsls2_choices[t] <- WSLS_agent_f(wsls2_choices[t - 1], prev_feedback2)
+}
+feedback_wsls1[trials] <- ifelse(wsls1_choices[trials] == wsls2_choices[trials], 1, 0)
+
+# Create dataframe
+df_vs_wsls <- tibble(
+  trial = 1:trials,
+  Self_WSLS = wsls1_choices,
+  Opponent_WSLS = wsls2_choices,
+  Feedback = feedback_wsls1 # 1 if Self_WSLS won
+) %>% mutate(
+  Cumulative_Performance = cumsum(Feedback) / row_number()
+)
+
+# --- Visualize Simulation Results ---
+
+
+p_choices_wsls <- ggplot(df_vs_wsls, aes(x = trial)) +
+  geom_line(aes(y = Self_WSLS, color = "WSLS Agent 1")) +
+  geom_line(aes(y = Opponent_WSLS + 0.05, color = "WSLS Agent 2"), linetype = "dashed") + # Offset slightly
+  labs(title = "WSLS vs. WSLS", y = "Choice (0/1)") + theme_classic() + ylim(-0.1, 1.1)
+
+p_perf_wsls <- ggplot(df_vs_wsls, aes(x = trial, y = Cumulative_Performance)) +
+  geom_line(color = "purple", size = 1) + geom_hline(yintercept = 0.5, linetype = "dashed") +
+  labs(title = "WSLS Performance vs. WSLS", y = "Proportion Wins") + theme_classic() + ylim(0, 1)
+
+p_choices_wsls
+
+p_perf_wsls
+```
+
