@@ -16,18 +16,17 @@ pacman::p_load(tidyverse, patchwork)
 
 ```{r}
 # Define trials and agents
-trials <- 250  
-
+trials <- 100
 agents <- 100  
 ```
 
 
-## Win-Stay-Lose-Shirt Agent 
+## Win-Stay-Lose-Shift Agent 
 ```{r}
 # Define Agent Function 
 WSLS_agent_f <- function(prev_round_choice, feedback) { #agent parameters 
   
-  choice <- ifelse(feedback == 1, prev_round_choice, 1 - prev_round_choice) #pick the opposite of last of                                     previous choice (1-prev_round_choice) if lost, pick the same if won. 
+  choice <- ifelse(feedback == 1, prev_round_choice, 1 - prev_round_choice) #pick the opposite of last of previous choice (1-prev_round_choice) if lost, pick the same if won. 
 
   return(choice) #make choice 
 }
@@ -35,7 +34,7 @@ WSLS_agent_f <- function(prev_round_choice, feedback) { #agent parameters
 
 ## Reinforcement Learning Agent
 ```{r}
-rl_agent_f <- function(last_choice, estimated_value, feedback, alpha = 1, beta=2) { 
+rl_agent_f <- function(last_choice, estimated_value, feedback, alpha = 0.5, beta=1) { 
   k <- last_choice + 1 
   estimated_value[k] <- estimated_value[k] + alpha * (feedback - estimated_value[k])
   
@@ -45,8 +44,6 @@ rl_agent_f <- function(last_choice, estimated_value, feedback, alpha = 1, beta=2
   
   choice <- sample(c(0, 1), 1, prob = p)
   
-  #choice <- rbinom(1, 1, estimated_value) #old way of choosing delete
-  
    return(list(
     choice = choice,
     estimated_value = estimated_value
@@ -54,64 +51,10 @@ rl_agent_f <- function(last_choice, estimated_value, feedback, alpha = 1, beta=2
 }
 ```
 
-
-## Simulating - WSLS vs. WSLS 
-```{r}
-# Create empty lists for choices and feedback
-wsls1_choices <- rep(NA, trials)
-wsls2_choices <- rep(NA, trials)
-feedback_wsls1 <- rep(NA, trials)
-
-wsls1_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 1 
-wsls2_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 2 
-
-for (t in 2:trials) {
-  # Feedback for agent 1 from previous trial (wins if match)
-  prev_feedback1 <- ifelse(wsls1_choices[t - 1] == wsls2_choices[t - 1], 1, 0)
-  feedback_wsls1[t - 1] <- prev_feedback1
-
-  # Feedback for agent 2 (opponent) is the opposite (wins if mismatch)
-  prev_feedback2 <- 1 - prev_feedback1
-
-  # Both agents choose based on their own previous feedback
-  wsls1_choices[t] <- WSLS_agent_f(wsls1_choices[t - 1], prev_feedback1)
-  wsls2_choices[t] <- WSLS_agent_f(wsls2_choices[t - 1], prev_feedback2)
-}
-feedback_wsls1[trials] <- ifelse(wsls1_choices[trials] == wsls2_choices[trials], 1, 0)
-
-# Create dataframe
-df_vs_wsls <- tibble(
-  trial = 1:trials,
-  Self_WSLS = wsls1_choices,
-  Opponent_WSLS = wsls2_choices,
-  Feedback = feedback_wsls1 # 1 if Self_WSLS won
-) %>% mutate(
-  Cumulative_Performance = cumsum(Feedback) / row_number()
-)
-
-
-```
-
-## Visualization - WSLS vs. WSLS 
-```{r}
-# Visualize Simulation Results 
-
-p_choices_wsls <- ggplot(df_vs_wsls, aes(x = trial)) +
-  geom_line(aes(y = Self_WSLS, color = "WSLS Agent 1")) +
-  geom_line(aes(y = Opponent_WSLS + 0.05, color = "WSLS Agent 2"), linetype = "dashed") + # Offset slightly
-  labs(title = "WSLS vs. WSLS", y = "Choice (0/1)") + theme_classic() + ylim(-0.1, 1.1)
-
-p_perf_wsls <- ggplot(df_vs_wsls, aes(x = trial, y = Cumulative_Performance)) +
-  geom_line(color = "purple", size = 1) + geom_hline(yintercept = 0.5, linetype = "dashed") +
-  labs(title = "WSLS Performance vs. WSLS", y = "Proportion Wins") + theme_classic() + ylim(0, 1)
-
-p_choices_wsls
-
-p_perf_wsls
-```
-
 ## Simulating - WSLS vs. RL
 ```{r}
+full_simulation <- function(alpha) {
+
 # Create empty lists for choices and feedback
 wsls_choices <- rep(NA, trials)
 RL_choices <- rep(NA, trials)
@@ -139,7 +82,8 @@ for (t in 2:trials) {
   result <- rl_agent_f(
     RL_choices[t - 1],
     estimated_value_tracked[t - 1, ],
-    prev_feedback2
+    prev_feedback2,
+    alpha=alpha
   )
   
   RL_choices[t] <- result$choice
@@ -156,47 +100,84 @@ df_WSLS_RL <- tibble(
   Opponent_RL = RL_choices,
   Feedback_wsls = feedback_wsls, # 1 if Self_WSLS won
   Feedback_RL = feedback_RL, # 1 if Opponent_RL won
-  RL_estimated_value = estimated_value_tracked
+  RL_estimated_value = estimated_value_tracked,
+  alpha=alpha
 ) %>% mutate(
   Cumulative_Performance = cumsum(feedback_wsls) / row_number()
 )
 
+return(df_WSLS_RL)
+}
 ```
 
-## Visualization - WSLS vs. RL 
+## Run simulation (differing alpha)
+```{r}
+alpha_values <- seq(from = 0, to = 1, by = 0.1)
+
+df <- map_dfr(alpha_values, full_simulation) #run full simulation for all alpha values appending each                                     df_WSLS_RL to create df containing simulations for each alpha value
+```
+
+
+## Visualization - WSLS vs. RL (alpha=0.4)
 ```{r}
 # Visualize Simulation Results 
 
-p_choices_wsls <- ggplot(df_WSLS_RL, aes(x = trial)) +
+p_choices_wsls <- ggplot(df %>% filter(alpha == 0.4), aes(x = trial)) +
   geom_line(aes(y = Self_WSLS, color = "WSLS Agent")) +
   geom_line(aes(y = Opponent_RL + 0.05, color = "RL Agent"), linetype = "dashed") + # Offset slightly
   labs(title = "WSLS vs. RL", y = "Choice (0/1)") + theme_classic() + ylim(-0.1, 1.1)
 
-p_perf_wsls <- ggplot(df_WSLS_RL, aes(x = trial, y = Cumulative_Performance)) +
+p_perf_wsls <- ggplot(df %>% filter(alpha == 0.4), aes(x = trial, y = Cumulative_Performance)) +
   geom_line(color = "purple", size = 1) + geom_hline(yintercept = 0.5, linetype = "dashed") +
   labs(title = "WSLS Performance vs. RL", y = "Proportion Wins") + theme_classic() + ylim(0, 1)
 
-p_choices_wsls
+ggsave(p_choices_wsls, filename= "choices_alpha_0.4.jpg")
 
-p_perf_wsls
+ggsave(p_perf_wsls, filename= "cumulative_alpha_0.4.jpg")
 ```
 
 
-## Visualization - Estimated Value 
+## Visualization - Estimated Value (alpha = 0.4)
 ```{r}
 # Visualize Simulation Results 
 
-p_choices_wsls <- ggplot(df_WSLS_RL, aes(x = trial)) +
-  geom_line(aes(y = Opponent_RL, color = "RL Agent"), linetype = "dashed") + # Offset slightly
+p_choices_ev <- ggplot(df %>% filter(alpha == 0.4), aes(x = trial)) +
+  geom_line(aes(y = RL_estimated_value[,1], color = "RL Agent (left hand)"), linetype = "solid") +
+  geom_line(aes(y = RL_estimated_value[,2], color = "RL Agent (right hand)"), linetype = "solid") +
+  labs(title = "Reinforcement Learning - Estimated Value", y = "Estimated Value") + theme_classic() + ylim(-0.1, 1.1)
+
+ggsave(p_choices_ev, filename= "ev_alpha_0.4.jpg")
+```
+## Visualization - WSLS vs. RL at differing alpha levels
+```{r}
+# Visualize Simulation Results 
+
+p_choices_wsls <- ggplot(df, aes(x = trial)) +
+  facet_wrap(~alpha) + 
+  geom_line(aes(y = Self_WSLS, color = "WSLS Agent")) +
+  geom_line(aes(y = Opponent_RL + 0.05, color = "RL Agent"), linetype = "dashed") + # Offset slightly
   labs(title = "WSLS vs. RL", y = "Choice (0/1)") + theme_classic() + ylim(-0.1, 1.1)
 
-p_perf_wsls <- ggplot(df_WSLS_RL, aes(x = trial, y = Cumulative_Performance)) +
+p_perf_wsls <- ggplot(df, aes(x = trial, y = Cumulative_Performance)) +
+  facet_wrap(~alpha) + 
   geom_line(color = "purple", size = 1) + geom_hline(yintercept = 0.5, linetype = "dashed") +
   labs(title = "WSLS Performance vs. RL", y = "Proportion Wins") + theme_classic() + ylim(0, 1)
 
-p_choices_wsls
+ggsave(p_choices_wsls, filename= "choices_alpha_facet_wrapped.jpg")  
 
-p_perf_wsls
+ggsave(p_perf_wsls, filename= "cumulative_alpha_facet_wrapped.jpg")  
 ```
 
+## Visualization - Estimated Value at differing alpha levels
+```{r}
+# Visualize Simulation Results 
+
+p_choices_ev <- ggplot(df, aes(x = trial)) +
+  facet_wrap(~alpha) +
+  geom_line(aes(y = RL_estimated_value[,1], color = "RL Agent (left hand)"), linetype = "solid") +
+  geom_line(aes(y = RL_estimated_value[,2], color = "RL Agent (right hand)"), linetype = "solid") +
+  labs(title = "Reinforcement Learning - Estimated Value", y = "Estimated Value") + theme_classic() + ylim(-0.1, 1.1)
+
+ggsave(p_choices_ev, filename= "ev_alpha_facet_wrapped.jpg")  
+```
 
