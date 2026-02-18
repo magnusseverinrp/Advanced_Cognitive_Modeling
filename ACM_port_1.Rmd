@@ -125,11 +125,11 @@ df <- map_dfr(alpha_values, full_simulation) #run full simulation for all alpha 
 p_choices_wsls <- ggplot(df %>% filter(alpha == 0.4), aes(x = trial)) +
   geom_line(aes(y = Self_WSLS, color = "WSLS Agent")) +
   geom_line(aes(y = Opponent_RL + 0.05, color = "RL Agent"), linetype = "dashed") + # Offset slightly
-  labs(title = "WSLS vs. RL", y = "Choice (0/1)") + theme_classic() + ylim(-0.1, 1.1)
+  labs(title = "WSLS vs. RL (alpha=0.4)", y = "Choice (0/1)") + theme_classic() + ylim(-0.1, 1.1)
 
 p_perf_wsls <- ggplot(df %>% filter(alpha == 0.4), aes(x = trial, y = Cumulative_Performance)) +
   geom_line(color = "purple", size = 1) + geom_hline(yintercept = 0.5, linetype = "dashed") +
-  labs(title = "WSLS Performance vs. RL", y = "Proportion Wins") + theme_classic() + ylim(0, 1)
+  labs(title = "WSLS Performance vs. RL (alpha=0.4)", y = "Proportion Wins") + theme_classic() + ylim(0, 1)
 
 ggsave(p_choices_wsls, filename= "choices_alpha_0.4.jpg")
 
@@ -144,7 +144,7 @@ ggsave(p_perf_wsls, filename= "cumulative_alpha_0.4.jpg")
 p_choices_ev <- ggplot(df %>% filter(alpha == 0.4), aes(x = trial)) +
   geom_line(aes(y = RL_estimated_value[,1], color = "RL Agent (left hand)"), linetype = "solid") +
   geom_line(aes(y = RL_estimated_value[,2], color = "RL Agent (right hand)"), linetype = "solid") +
-  labs(title = "Reinforcement Learning - Estimated Value", y = "Estimated Value") + theme_classic() + ylim(-0.1, 1.1)
+  labs(title = "Reinforcement Learning - Estimated Value (alpha=0.4)", y = "Estimated Value") + theme_classic() + ylim(-0.1, 1.1)
 
 ggsave(p_choices_ev, filename= "ev_alpha_0.4.jpg")
 ```
@@ -156,12 +156,12 @@ p_choices_wsls <- ggplot(df, aes(x = trial)) +
   facet_wrap(~alpha) + 
   geom_line(aes(y = Self_WSLS, color = "WSLS Agent")) +
   geom_line(aes(y = Opponent_RL + 0.05, color = "RL Agent"), linetype = "dashed") + # Offset slightly
-  labs(title = "WSLS vs. RL", y = "Choice (0/1)") + theme_classic() + ylim(-0.1, 1.1)
+  labs(title = "WSLS vs. RL by alpha level", y = "Choice (0/1)") + theme_classic() + ylim(-0.1, 1.1)
 
 p_perf_wsls <- ggplot(df, aes(x = trial, y = Cumulative_Performance)) +
   facet_wrap(~alpha) + 
   geom_line(color = "purple", size = 1) + geom_hline(yintercept = 0.5, linetype = "dashed") +
-  labs(title = "WSLS Performance vs. RL", y = "Proportion Wins") + theme_classic() + ylim(0, 1)
+  labs(title = "WSLS Performance vs. RL by alpha level", y = "Proportion Wins") + theme_classic() + ylim(0, 1)
 
 ggsave(p_choices_wsls, filename= "choices_alpha_facet_wrapped.jpg")  
 
@@ -176,7 +176,7 @@ p_choices_ev <- ggplot(df, aes(x = trial)) +
   facet_wrap(~alpha) +
   geom_line(aes(y = RL_estimated_value[,1], color = "RL Agent (left hand)"), linetype = "solid") +
   geom_line(aes(y = RL_estimated_value[,2], color = "RL Agent (right hand)"), linetype = "solid") +
-  labs(title = "Reinforcement Learning - Estimated Value", y = "Estimated Value") + theme_classic() + ylim(-0.1, 1.1)
+  labs(title = "Reinforcement Learning - Estimated Value by alpha level", y = "Estimated Value") + theme_classic() + ylim(-0.1, 1.1)
 
 ggsave(p_choices_ev, filename= "ev_alpha_facet_wrapped.jpg")  
 ```
