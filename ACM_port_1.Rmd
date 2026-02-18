@@ -35,16 +35,21 @@ WSLS_agent_f <- function(prev_round_choice, feedback) { #agent parameters
 
 ## Reinforcement Learning Agent
 ```{r}
-rl_agent_f(prev_round_choice, feedback, alpha = 0.1) { ##????
+rl_agent_f <- function(estimated_value, feedback, alpha = 1) { 
   
-  choice <- 
+  estimated_value <- estimated_value + alpha * (feedback - estimated_value)
   
-  return(choice)
+  choice <- ifelse(estimated_value >= 0.5, 1, 0) 
+  
+   return(list(
+    choice = choice,
+    estimated_value = estimated_value
+  ))
 }
 ```
 
 
-## Simulating 
+## Simulating - WSLS vs. WSLS 
 ```{r}
 # Create empty lists for choices and feedback
 wsls1_choices <- rep(NA, trials)
@@ -78,6 +83,11 @@ df_vs_wsls <- tibble(
   Cumulative_Performance = cumsum(Feedback) / row_number()
 )
 
+
+```
+
+## Visualization - WSLS vs. WSLS 
+```{r}
 # Visualize Simulation Results 
 
 p_choices_wsls <- ggplot(df_vs_wsls, aes(x = trial)) +
@@ -94,3 +104,66 @@ p_choices_wsls
 p_perf_wsls
 ```
 
+## Simulating - WSLS vs. RL
+```{r}
+# Create empty lists for choices and feedback
+wsls_choices <- rep(NA, trials)
+RL_choices <- rep(NA, trials)
+feedback_wsls <- rep(NA, trials)
+feedback_RL <- rep(NA, trials)
+estimated_value_tracked <- rep(NA, trials)
+
+wsls_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 1 
+RL_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 2 
+estimated_value_tracked[1] <- 0.5
+
+for (t in 2:trials) {
+  # Feedback for agent 1 from previous trial (wins if match)
+  prev_feedback1 <- ifelse(wsls_choices[t - 1] == RL_choices[t - 1], 1, 0)
+  feedback_wsls[t - 1] <- prev_feedback1
+
+  # Feedback for agent 2 (opponent) is the opposite (wins if mismatch)
+  prev_feedback2 <- 1 - prev_feedback1
+  feedback_RL[t - 1] <- prev_feedback2
+
+  # Both agents choose based on their own previous feedback
+  wsls_choices[t] <- WSLS_agent_f(wsls_choices[t - 1], prev_feedback1) #WSLS agent choice
+  
+  result <- rl_agent_f(estimated_value_tracked[t - 1], prev_feedback2) #WSLS agent choice
+  RL_choices[t] <- result$choice #saving WSLS agent choice
+  estimated_value_tracked[t] <- result$estimated_value #saving WSLS agent estimated value
+  
+  
+}
+feedback_wsls[trials] <- ifelse(wsls_choices[trials] == RL_choices[trials], 1, 0)
+
+# Create dataframe
+df_WSLS_RL <- tibble(
+  trial = 1:trials,
+  Self_WSLS = wsls_choices,
+  Opponent_RL = RL_choices,
+  Feedback = feedback_wsls, # 1 if Self_WSLS won
+  RL_estimated_value = estimated_value_tracked
+) %>% mutate(
+  Cumulative_Performance = cumsum(Feedback) / row_number()
+)
+
+```
+
+## Visualization - WSLS vs. RL 
+```{r}
+# Visualize Simulation Results 
+
+p_choices_wsls <- ggplot(df_WSLS_RL, aes(x = trial)) +
+  geom_line(aes(y = Self_WSLS, color = "WSLS Agent")) +
+  geom_line(aes(y = Opponent_RL + 0.05, color = "RL Agent"), linetype = "dashed") + # Offset slightly
+  labs(title = "WSLS vs. RL", y = "Choice (0/1)") + theme_classic() + ylim(-0.1, 1.1)
+
+p_perf_wsls <- ggplot(df_WSLS_RL, aes(x = trial, y = Cumulative_Performance)) +
+  geom_line(color = "purple", size = 1) + geom_hline(yintercept = 0.5, linetype = "dashed") +
+  labs(title = "WSLS Performance vs. RL", y = "Proportion Wins") + theme_classic() + ylim(0, 1)
+
+p_choices_wsls
+
+p_perf_wsls
+```
