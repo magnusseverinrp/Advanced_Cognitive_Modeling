@@ -25,7 +25,7 @@ agents <- 100
 ## Win-Stay-Lose-Shirt Agent 
 ```{r}
 # Define Agent Function 
-WSLS_agent_f <- function(prev_round_choice, feedback) { 
+WSLS_agent_f <- function(prev_round_choice, feedback) { #agent parameters 
   
   choice <- ifelse(feedback == 1, prev_round_choice, 1 - prev_round_choice) #pick the opposite of last of                                     previous choice (1-prev_round_choice) if lost, pick the same if won. 
 
@@ -37,7 +37,7 @@ WSLS_agent_f <- function(prev_round_choice, feedback) {
 ```{r}
 rl_agent_f(prev_round_choice, feedback, alpha = 0.1) { ##????
   
-  
+  choice <- 
   
   return(choice)
 }
