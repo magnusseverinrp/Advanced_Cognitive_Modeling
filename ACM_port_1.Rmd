@@ -9,14 +9,13 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
-
 ## Setup 
 ```{r}
 pacman::p_load(tidyverse, patchwork)
 ```
 
 ```{r}
+# Define trials and agents
 trials <- 120  
 
 agents <- 100  
@@ -25,11 +24,12 @@ agents <- 100
 
 ## Win-Stay-Lose-Shirt Agent 
 ```{r}
-WSLS_agent_f <- function(prev_round_choice, feedback) {
+# Define Agent Function 
+WSLS_agent_f <- function(prev_round_choice, feedback) { 
   
-  choice <- ifelse(feedback == 1, prev_round, 1 - prev_round)
+  choice <- ifelse(feedback == 1, prev_round_choice, 1 - prev_round_choice) #pick the opposite of last of                                     previous choice (1-prev_round_choice) if lost, pick the same if won. 
 
-  return(choice)
+  return(choice) #make choice 
 }
 ```
 
@@ -46,12 +46,13 @@ rl_agent_f(prev_round_choice, feedback, alpha = 0.1) { ##????
 
 ## Simulating 
 ```{r}
+# Create empty lists for choices and feedback
 wsls1_choices <- rep(NA, trials)
 wsls2_choices <- rep(NA, trials)
 feedback_wsls1 <- rep(NA, trials)
 
-wsls1_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 
-wsls2_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 
+wsls1_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 1 
+wsls2_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 2 
 
 for (t in 2:trials) {
   # Feedback for agent 1 from previous trial (wins if match)
@@ -77,8 +78,7 @@ df_vs_wsls <- tibble(
   Cumulative_Performance = cumsum(Feedback) / row_number()
 )
 
-# --- Visualize Simulation Results ---
-
+# Visualize Simulation Results 
 
 p_choices_wsls <- ggplot(df_vs_wsls, aes(x = trial)) +
   geom_line(aes(y = Self_WSLS, color = "WSLS Agent 1")) +
