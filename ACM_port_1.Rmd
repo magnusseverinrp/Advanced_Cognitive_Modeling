@@ -16,7 +16,7 @@ pacman::p_load(tidyverse, patchwork)
 
 ```{r}
 # Define trials and agents
-trials <- 120  
+trials <- 250  
 
 agents <- 100  
 ```
@@ -35,11 +35,17 @@ WSLS_agent_f <- function(prev_round_choice, feedback) { #agent parameters
 
 ## Reinforcement Learning Agent
 ```{r}
-rl_agent_f <- function(estimated_value, feedback, alpha = 1) { 
+rl_agent_f <- function(last_choice, estimated_value, feedback, alpha = 1, beta=2) { 
+  k <- last_choice + 1 
+  estimated_value[k] <- estimated_value[k] + alpha * (feedback - estimated_value[k])
   
-  estimated_value <- estimated_value + alpha * (feedback - estimated_value)
+  #softmaxxing
+  exp_p <- exp(beta * estimated_value)
+  p <- exp_p / sum(exp_p)
   
-  choice <- ifelse(estimated_value >= 0.5, 1, 0) 
+  choice <- sample(c(0, 1), 1, prob = p)
+  
+  #choice <- rbinom(1, 1, estimated_value) #old way of choosing delete
   
    return(list(
     choice = choice,
@@ -111,7 +117,8 @@ wsls_choices <- rep(NA, trials)
 RL_choices <- rep(NA, trials)
 feedback_wsls <- rep(NA, trials)
 feedback_RL <- rep(NA, trials)
-estimated_value_tracked <- rep(NA, trials)
+estimated_value_tracked <- matrix(NA, trials, 2)
+estimated_value_tracked[1, ] <- c(0.5, 0.5)
 
 wsls_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 1 
 RL_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 2 
@@ -129,9 +136,14 @@ for (t in 2:trials) {
   # Both agents choose based on their own previous feedback
   wsls_choices[t] <- WSLS_agent_f(wsls_choices[t - 1], prev_feedback1) #WSLS agent choice
   
-  result <- rl_agent_f(estimated_value_tracked[t - 1], prev_feedback2) #WSLS agent choice
-  RL_choices[t] <- result$choice #saving WSLS agent choice
-  estimated_value_tracked[t] <- result$estimated_value #saving WSLS agent estimated value
+  result <- rl_agent_f(
+    RL_choices[t - 1],
+    estimated_value_tracked[t - 1, ],
+    prev_feedback2
+  )
+  
+  RL_choices[t] <- result$choice
+  estimated_value_tracked[t, ] <- result$estimated_value
   
   
 }
@@ -142,10 +154,11 @@ df_WSLS_RL <- tibble(
   trial = 1:trials,
   Self_WSLS = wsls_choices,
   Opponent_RL = RL_choices,
-  Feedback = feedback_wsls, # 1 if Self_WSLS won
+  Feedback_wsls = feedback_wsls, # 1 if Self_WSLS won
+  Feedback_RL = feedback_RL, # 1 if Opponent_RL won
   RL_estimated_value = estimated_value_tracked
 ) %>% mutate(
-  Cumulative_Performance = cumsum(Feedback) / row_number()
+  Cumulative_Performance = cumsum(feedback_wsls) / row_number()
 )
 
 ```
@@ -167,3 +180,23 @@ p_choices_wsls
 
 p_perf_wsls
 ```
+
+
+## Visualization - Estimated Value 
+```{r}
+# Visualize Simulation Results 
+
+p_choices_wsls <- ggplot(df_WSLS_RL, aes(x = trial)) +
+  geom_line(aes(y = Opponent_RL, color = "RL Agent"), linetype = "dashed") + # Offset slightly
+  labs(title = "WSLS vs. RL", y = "Choice (0/1)") + theme_classic() + ylim(-0.1, 1.1)
+
+p_perf_wsls <- ggplot(df_WSLS_RL, aes(x = trial, y = Cumulative_Performance)) +
+  geom_line(color = "purple", size = 1) + geom_hline(yintercept = 0.5, linetype = "dashed") +
+  labs(title = "WSLS Performance vs. RL", y = "Proportion Wins") + theme_classic() + ylim(0, 1)
+
+p_choices_wsls
+
+p_perf_wsls
+```
+
+
