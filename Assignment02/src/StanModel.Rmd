@@ -40,10 +40,20 @@ data {
     # tau - inverse temperature - bounded between 0-infinity (or realistically 0-20)
 
 parameters {
-  real < LOWER = 0, UPPER =1 > alpha; # alpha bounded between 0-1
-  real < LOWER = 0 < tau; # no upper bound as distribution chosen should ensure high values are very unlikely
-  
-  
+  real < LOWER = 0, UPPER = 1 > alpha; # alpha bounded between 0-1
+  real < LOWER = 0, UPPER = 20  > tau; # no upper bound as distribution chosen should ensure high values are very unlikely. This is currently just one number but add an array [n] if we have seperate agents we want different temperatures for.
+}
+```
+
+```{r}
+# 3. Model: states the model itself. In this case a reinforcement learning model
+
+model {
+  // Prior: Belief about alpha and tau before seeing the data
+    target += 
+      
+  // Likelihood: How the data depends on the parameters
+    target +=
 }
 ```
 
