@@ -3,3 +3,48 @@ title: "StanModel"
 output: html_document
 ---
 
+```{r}
+# setup
+pacman::p_load(
+  tidyverse,
+  rstan,
+  bayesplot
+)
+```
+
+
+```{r}
+# 1. Data: Matching Pennies: States the observable data Stan can expect
+
+## Data - OBSERVABLE variables:
+    # n - number of trials - Integer, with lower bound 1
+    # h - choices - 0 or 1 bounded data - Binomial
+    # players - number of players, integer with lower bound 1
+    # feedback - feedback - can be -1+1 or 0-1
+
+data {
+  int < LOWER = 1 > players; # No. of players, must be at least 1
+  int < LOWER = 1 > n; # No. of trials, must be at least 1
+  array[n] int choice; # Array "h" of choices (0 or 1) with length "n" for no. trials, 
+  array[n, players] int choice; # Array "h" of choices (0 or 1) with length "n" for no. trials, and "players" for no. of players
+  array[n] int feedback; # Array "f" of feedback (0 or 1) with length "n" for no. trials
+}
+
+```
+
+```{r}
+# 2. Parameters: States the parameters the model will estimate. These are the UNOBSERVABLE/inferrable variables that we want to estimate.
+
+## Parameters: unobservable variables
+    # alpha - learning rate - bounded between 0-1 
+    # tau - inverse temperature - bounded between 0-infinity (or realistically 0-20)
+
+parameters {
+  real < LOWER = 0, UPPER =1 > alpha; # alpha bounded between 0-1
+  real < LOWER = 0 < tau; # no upper bound as distribution chosen should ensure high values are very unlikely
+  
+  
+}
+```
+
+
