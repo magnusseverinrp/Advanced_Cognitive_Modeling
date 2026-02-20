@@ -1,0 +1,31 @@
+---
+title: "RW"
+output: html_document
+---
+
+```{r}
+pacman::p_load(tidyverse, patchwork)
+
+```
+
+
+```{r}
+# Define trials and agents
+trials <- 120  
+agents <- 100  
+
+```
+
+```{r}
+# Rescorla Wagner Function
+
+rl_agent_f <- function(estimated_value, feedback, alpha = 1) { 
+  
+  estimated_value_updated <- estimated_value + alpha * (last_feedback - estimated_value)
+  
+  estimated_value <- 
+  
+}
+
+```
+
