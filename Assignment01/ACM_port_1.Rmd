@@ -222,17 +222,17 @@ p_perf_wsls <- ggplot(df %>% filter(alpha == 0.4), aes(x = trial, y = Cumulative
 
 
 p_choices_wsls
-#ggsave(p_choices_wsls, filename= "choices_alpha_0.4.jpg")
+ggsave(p_choices_wsls, filename= "choices_alpha_0.4.jpg")
 
 p_perf_wsls
-#ggsave(p_perf_wsls, filename= "cumulative_alpha_0.4.jpg")
+ggsave(p_perf_wsls, filename= "cumulative_alpha_0.4.jpg")
 ```
 
 ## Visualization - Estimated Value (alpha = 0.4)
 ```{r}
 # Visualize Simulation Results 
 
-p_choices_ev <- ggplot(df, aes(x = trial)) + 
+p_choices_ev <- ggplot(df %>% filter(alpha==0.4), aes(x = trial)) + 
   geom_line(aes(y = RL_estimated_value_left, color = "RL Agent (left hand)"), linetype = "solid") +
   geom_line(aes(y = RL_estimated_value_right, color = "RL Agent (right hand)"), linetype = "solid") +
   labs(title = "Reinforcement Learning - Estimated Value (alpha=0.4)", y = "Estimated Value") + theme_classic() + ylim(-0.1, 1.1)
@@ -291,7 +291,7 @@ p_choices_ev <- ggplot(df, aes(x = trial)) +
 
 p_choices_ev
 
-#ggsave(p_choices_ev, filename= "ev_alpha_facet_wrapped.jpg")  
+ggsave(p_choices_ev, filename= "ev_alpha_facet_wrapped.jpg")  
 ```
 
 ## Visualization - Estimated Value at differing alpha levels against 1-agent
