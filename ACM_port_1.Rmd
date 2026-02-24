@@ -35,6 +35,8 @@ WSLS_agent_f <- function(prev_round_choice, feedback) { #agent parameters
 ## Reinforcement Learning Agent
 ```{r}
 rl_agent_f <- function(last_choice, estimated_value, feedback, alpha = 0.4, beta=1) { 
+  estimated_value <- c(estimated_value, 1-estimated_value) 
+  
   k <- last_choice + 1 
   estimated_value[k] <- estimated_value[k] + alpha * (feedback - estimated_value[k])
   
@@ -46,7 +48,7 @@ rl_agent_f <- function(last_choice, estimated_value, feedback, alpha = 0.4, beta
   
    return(list(
     choice = choice,
-    estimated_value = estimated_value
+    estimated_value = estimated_value[1]
   ))
 }
 ```
@@ -60,18 +62,19 @@ wsls_choices <- rep(NA, trials)
 RL_choices <- rep(NA, trials)
 feedback_wsls <- rep(NA, trials)
 feedback_RL <- rep(NA, trials)
-estimated_value_tracked <- matrix(NA, trials, 2)
-estimated_value_tracked[1, ] <- c(0.5, 0.5)
+estimated_value_tracked <- rep(NA, trials) 
+estimated_value_tracked[1] <- 0.5 #tracking "left" hand - estiamted_value[1]
+ 
 
 wsls_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 1 
 RL_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 2 
 
 for (t in 2:trials) {
-  # Feedback for agent 1 from previous trial (wins if match)
+  # Feedback for agent 1 (WSLS) from previous trial (wins if match)
   prev_feedback1 <- ifelse(wsls_choices[t - 1] == RL_choices[t - 1], 1, 0)
   feedback_wsls[t - 1] <- prev_feedback1
 
-  # Feedback for agent 2 (opponent) is the opposite (wins if mismatch)
+  # Feedback for agent 2 (Reinforcement Learning - Opponent) is the opposite (wins if mismatch)
   prev_feedback2 <- 1 - prev_feedback1
   feedback_RL[t - 1] <- prev_feedback2
 
@@ -80,13 +83,13 @@ for (t in 2:trials) {
   
   result <- rl_agent_f(
     RL_choices[t - 1],
-    estimated_value_tracked[t - 1, ],
+    estimated_value_tracked[t - 1],
     prev_feedback2,
     alpha=alpha
   )
   
   RL_choices[t] <- result$choice
-  estimated_value_tracked[t, ] <- result$estimated_value
+  estimated_value_tracked[t] <- result$estimated_value
   
   
 }
@@ -99,7 +102,8 @@ df_WSLS_RL <- tibble(
   Opponent_RL = RL_choices,
   Feedback_wsls = feedback_wsls, # 1 if Self_WSLS won
   Feedback_RL = feedback_RL, # 1 if Opponent_RL won
-  RL_estimated_value = estimated_value_tracked,
+  RL_estimated_value_left = estimated_value_tracked,
+  RL_estimated_value_right = 1-estimated_value_tracked,
   alpha=alpha
 ) %>% mutate(
   Cumulative_Performance = cumsum(feedback_wsls) / row_number()
@@ -108,6 +112,11 @@ df_WSLS_RL <- tibble(
 return(df_WSLS_RL)
 }
 ```
+
+```{r}
+full_simulation(alpha = 0.4)
+```
+
 
 ## Run simulation (differing alpha)
 ```{r}
@@ -130,9 +139,12 @@ p_perf_wsls <- ggplot(df %>% filter(alpha == 0.4), aes(x = trial, y = Cumulative
   geom_line(color = "purple", size = 1) + geom_hline(yintercept = 0.5, linetype = "dashed") +
   labs(title = "WSLS Performance vs. RL (alpha=0.4)", y = "Proportion Wins") + theme_classic() + ylim(0, 1)
 
-ggsave(p_choices_wsls, filename= "choices_alpha_0.4.jpg")
 
-ggsave(p_perf_wsls, filename= "cumulative_alpha_0.4.jpg")
+p_choices_wsls
+#ggsave(p_choices_wsls, filename= "choices_alpha_0.4.jpg")
+
+p_perf_wsls
+#ggsave(p_perf_wsls, filename= "cumulative_alpha_0.4.jpg")
 ```
 
 
@@ -141,12 +153,15 @@ ggsave(p_perf_wsls, filename= "cumulative_alpha_0.4.jpg")
 # Visualize Simulation Results 
 
 p_choices_ev <- ggplot(df %>% filter(alpha == 0.4), aes(x = trial)) +
-  geom_line(aes(y = RL_estimated_value[,1], color = "RL Agent (left hand)"), linetype = "solid") +
-  geom_line(aes(y = RL_estimated_value[,2], color = "RL Agent (right hand)"), linetype = "solid") +
+  geom_line(aes(y = RL_estimated_value_left, color = "RL Agent (left hand)"), linetype = "solid") +
+  geom_line(aes(y = RL_estimated_value_right, color = "RL Agent (right hand)"), linetype = "solid") +
   labs(title = "Reinforcement Learning - Estimated Value (alpha=0.4)", y = "Estimated Value") + theme_classic() + ylim(-0.1, 1.1)
 
-ggsave(p_choices_ev, filename= "ev_alpha_0.4.jpg")
+#ggsave(p_choices_ev, filename= "ev_alpha_0.4.jpg")
+
+p_choices_ev
 ```
+
 ## Visualization - WSLS vs. RL at differing alpha levels
 ```{r}
 # Visualize Simulation Results 
@@ -162,9 +177,11 @@ p_perf_wsls <- ggplot(df, aes(x = trial, y = Cumulative_Performance)) +
   geom_line(color = "purple", size = 1) + geom_hline(yintercept = 0.5, linetype = "dashed") +
   labs(title = "WSLS Performance vs. RL by alpha level", y = "Proportion Wins") + theme_classic() + ylim(0, 1)
 
-ggsave(p_choices_wsls, filename= "choices_alpha_facet_wrapped.jpg")  
+p_choices_wsls
+#ggsave(p_choices_wsls, filename= "choices_alpha_facet_wrapped.jpg")  
 
-ggsave(p_perf_wsls, filename= "cumulative_alpha_facet_wrapped.jpg")  
+p_perf_wsls
+#ggsave(p_perf_wsls, filename= "cumulative_alpha_facet_wrapped.jpg")  
 ```
 
 ## Visualization - Estimated Value at differing alpha levels
@@ -175,8 +192,11 @@ p_choices_ev <- ggplot(df, aes(x = trial)) +
   facet_wrap(~alpha) +
   geom_line(aes(y = RL_estimated_value[,1], color = "RL Agent (left hand)"), linetype = "solid") +
   geom_line(aes(y = RL_estimated_value[,2], color = "RL Agent (right hand)"), linetype = "solid") +
-  labs(title = "Reinforcement Learning - Estimated Value by alpha level", y = "Estimated Value") + theme_classic() + ylim(-0.1, 1.1)
+  labs(title = "Reinforcement Learning - Estimated Value by alpha level", y = "Estimated Value") +
+  geom_hline(yintercept = 0.5, linetype = "dashed") + #horizontal line
+  theme_classic() + ylim(-0.1, 1.1)
 
-ggsave(p_choices_ev, filename= "ev_alpha_facet_wrapped.jpg")  
+p_choices_ev
+#ggsave(p_choices_ev, filename= "ev_alpha_facet_wrapped.jpg")  
 ```
 
