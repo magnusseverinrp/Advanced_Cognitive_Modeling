@@ -16,7 +16,7 @@ pacman::p_load(tidyverse, patchwork)
 
 ```{r}
 # Define trials and agents
-trials <- 100
+trials <- 20
 agents <- 100  
 ```
 
@@ -121,8 +121,75 @@ return(df_WSLS_RL)
 }
 ```
 
+## Simulating - one vs. RL
+```{r}
+one_simulation <- function(alpha) {
+
+# Create empty lists for choices and feedback
+one_choices <- rep(NA, trials)
+RL_choices <- rep(NA, trials)
+feedback_one <- rep(NA, trials)
+feedback_RL <- rep(NA, trials)
+estimated_value_tracked <- rep(NA, trials) 
+estimated_value_tracked[1] <- 0.5 #tracking "left" hand - estiamted_value[1]
+ 
+
+one_choices[1] <- 1 #choice on trial 1 for agent 1 
+RL_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 2 
+
+for (t in 2:trials) {
+  # Feedback for agent 1 (WSLS) from previous trial (wins if match)
+  prev_feedback1 <- ifelse(one_choices[t - 1] == RL_choices[t - 1], 1, 0)
+  feedback_one[t - 1] <- prev_feedback1
+
+  # Feedback for agent 2 (Reinforcement Learning - Opponent) is the opposite (wins if mismatch)
+  prev_feedback2 <- 1 - prev_feedback1
+  feedback_RL[t - 1] <- prev_feedback2
+
+  # One agent chooses 1 
+  one_choices[t] <- 1
+  
+  # RL agent choice and update estimated value based on previous feedback
+  result <- rl_agent_f(
+    RL_choices[t - 1],
+    estimated_value_tracked[t - 1],
+    prev_feedback2,
+    alpha=alpha
+  )
+  
+  # RL agent choice and update estimated value defined for current trial
+  RL_choices[t] <- result$choice
+  estimated_value_tracked[t] <- result$estimated_value
+  
+  
+}
+
+# Defining the feedback across trials
+feedback_one[trials] <- ifelse(one_choices[trials] == RL_choices[trials], 1, 0)
+
+# Create dataframe
+df_one_RL <- tibble(
+  trial = 1:trials,
+  Self_one = one_choices,
+  Opponent_RL = RL_choices,
+  Feedback_one = feedback_one, # 1 if one_WSLS won
+  Feedback_RL = feedback_RL, # 1 if Opponent_RL won
+  RL_estimated_value_left = estimated_value_tracked,
+  RL_estimated_value_right = 1-estimated_value_tracked,
+  alpha=alpha
+) %>% mutate(
+  Cumulative_Performance = cumsum(feedback_one) / row_number()
+)
+
+return(df_one_RL)
+}
+```
+
 ```{r}
 full_simulation(alpha = 0.4)
+```
+```{r}
+df_one_RL <- one_simulation(alpha = 0.4)
 ```
 
 
@@ -133,6 +200,12 @@ alpha_values <- seq(from = 0, to = 1, by = 0.1)
 df <- map_dfr(alpha_values, full_simulation) #running full simulation for all alpha values appending each df_WSLS_RL to create df containing simulations for each alpha value
 ```
 
+## Run simulation - one (differing alpha)
+```{r}
+alpha_values <- seq(from = 0, to = 1, by = 0.1)
+
+df_one <- map_dfr(alpha_values, one_simulation) #running full simulation for all alpha values appending each df_WSLS_RL to create df containing simulations for each alpha value
+```
 
 ## Visualization - WSLS vs. RL (alpha=0.4)
 ```{r}
@@ -160,7 +233,7 @@ p_perf_wsls
 ```{r}
 # Visualize Simulation Results 
 
-p_choices_ev <- ggplot(df %>% filter(alpha == 0.4), aes(x = trial)) +
+p_choices_ev <- ggplot(df_one_RL, aes(x = trial)) +
   geom_line(aes(y = RL_estimated_value_left, color = "RL Agent (left hand)"), linetype = "solid") +
   geom_line(aes(y = RL_estimated_value_right, color = "RL Agent (right hand)"), linetype = "solid") +
   labs(title = "Reinforcement Learning - Estimated Value (alpha=0.4)", y = "Estimated Value") + theme_classic() + ylim(-0.1, 1.1)
@@ -196,10 +269,10 @@ p_perf_wsls
 ```{r}
 # Visualize Simulation Results 
 
-p_choices_ev <- ggplot(df, aes(x = trial)) +
+p_choices_ev <- ggplot(df_one, aes(x = trial)) +
   facet_wrap(~alpha) +
-  geom_line(aes(y = RL_estimated_value[,1], color = "RL Agent (left hand)"), linetype = "solid") +
-  geom_line(aes(y = RL_estimated_value[,2], color = "RL Agent (right hand)"), linetype = "solid") +
+  geom_line(aes(y = RL_estimated_value_left, color = "RL Agent (left hand)"), linetype = "solid") +
+  geom_line(aes(y = RL_estimated_value_right, color = "RL Agent (right hand)"), linetype = "solid") +
   labs(title = "Reinforcement Learning - Estimated Value by alpha level", y = "Estimated Value") +
   geom_hline(yintercept = 0.5, linetype = "dashed") + #horizontal line
   theme_classic() + ylim(-0.1, 1.1)
