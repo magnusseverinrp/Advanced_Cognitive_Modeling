@@ -20,7 +20,6 @@ trials <- 100
 agents <- 100  
 ```
 
-
 ## Win-Stay-Lose-Shift Agent 
 ```{r}
 # Define Agent Function 
@@ -35,20 +34,25 @@ WSLS_agent_f <- function(prev_round_choice, feedback) { #agent parameters
 ## Reinforcement Learning Agent
 ```{r}
 rl_agent_f <- function(last_choice, estimated_value, feedback, alpha = 0.4, beta=1) { 
+  # estimated value list for L and R hand
   estimated_value <- c(estimated_value, 1-estimated_value) 
   
+  # indexing to update the estimated value of the last choice (1 for left hand, 2 for right hand)
   k <- last_choice + 1 
+  
+  # RL formula
   estimated_value[k] <- estimated_value[k] + alpha * (feedback - estimated_value[k])
   
   #softmaxxing
   exp_p <- exp(beta * estimated_value)
   p <- exp_p / sum(exp_p)
   
+  # choice based on softmax probabilities
   choice <- sample(c(0, 1), 1, prob = p)
   
    return(list(
     choice = choice,
-    estimated_value = estimated_value[1]
+    estimated_value = estimated_value[1] # only return for the left hand
   ))
 }
 ```
@@ -81,6 +85,7 @@ for (t in 2:trials) {
   # Both agents choose based on their own previous feedback
   wsls_choices[t] <- WSLS_agent_f(wsls_choices[t - 1], prev_feedback1) #WSLS agent choice
   
+  # RL agent choice and update estimated value based on previous feedback
   result <- rl_agent_f(
     RL_choices[t - 1],
     estimated_value_tracked[t - 1],
@@ -88,11 +93,14 @@ for (t in 2:trials) {
     alpha=alpha
   )
   
+  # RL agent choice and update estimated value defined for current trial
   RL_choices[t] <- result$choice
   estimated_value_tracked[t] <- result$estimated_value
   
   
 }
+
+# Defining the feedback across trials
 feedback_wsls[trials] <- ifelse(wsls_choices[trials] == RL_choices[trials], 1, 0)
 
 # Create dataframe
