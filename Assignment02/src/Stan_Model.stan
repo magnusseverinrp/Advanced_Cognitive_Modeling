@@ -14,8 +14,7 @@ data {
   int < LOWER = 1 > players; # No. of players, must be at least 1
   int < LOWER = 1 > n; # No. of trials, must be at least 1
   array[n] int choice; # Array "h" of choices (0 or 1) with length "n" for no. trials, 
-  array[n, players] int choice; # Array "h" of choices (0 or 1) with length "n" for no. trials, and "players" for no. of players
-  array[n] int feedback; # Array "f" of feedback (0 or 1) with length "n" for no. trials
+  array[n] int opp_choice; # Array "f" of feedback (0 or 1) with length "n" for no. trials
 }
 
 // The parameters accepted by the model. Our model
@@ -53,7 +52,7 @@ model {
   for (t in 2:n){
     
     # RL model
-    PE = feedback[t-1] - EV[t-1];
+    PE = opp_choice[t-1] - EV[t-1];
     EV[t] = EV[t-1] + (alpha * PE);
     
     # softmax
