@@ -22,9 +22,13 @@ data {
 parameters {
   real alpha_logit; # Define alpha_logit unbounded real no.
   real tau_logit; # Define tau_logit unbounded real no.
+  
+  # we use logit as we want stan to be able to sample for + to - inf!! 
+  #That is why we use logit/inv_logit to transform between bounded and unbounded values e.g. log odds
 }
 
-transformed parameters {
+transformed parameters { # Define how to transform paramteres back into shape the model requires.
+  
   # define how to get from alpha logit to alpha and define alpha limits of parameter
   real <LOWER = 0, UPPER =1 > alpha = inv_logt(alpha_logit);
   # define how to get from tau logit to tau and define tau limits of parameter
