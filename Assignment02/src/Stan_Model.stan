@@ -1,27 +1,15 @@
----
-title: "StanModel"
-output: html_document
----
+//
+// This Stan program defines a simple model, with a
+// vector of values 'y' modeled as normally distributed
+// with mean 'mu' and standard deviation 'sigma'.
+//
+// Learn more about model development with Stan at:
+//
+//    http://mc-stan.org/users/interfaces/rstan.html
+//    https://github.com/stan-dev/rstan/wiki/RStan-Getting-Started
+//
 
-```{r}
-# setup
-pacman::p_load(
-  tidyverse,
-  rstan,
-  bayesplot
-)
-```
-
-
-```{r}
-# 1. Data: Matching Pennies: States the observable data Stan can expect
-
-## Data - OBSERVABLE variables:
-    # n - number of trials - Integer, with lower bound 1
-    # h - choices - 0 or 1 bounded data - Binomial
-    # players - number of players, integer with lower bound 1
-    # feedback - feedback - can be -1+1 or 0-1
-
+// The input data is a vector 'y' of length 'N'.
 data {
   int < LOWER = 1 > players; # No. of players, must be at least 1
   int < LOWER = 1 > n; # No. of trials, must be at least 1
@@ -30,22 +18,13 @@ data {
   array[n] int feedback; # Array "f" of feedback (0 or 1) with length "n" for no. trials
 }
 
-```
-
-```{r}
-# 2. Parameters: States the parameters the model will estimate. These are the UNOBSERVABLE/inferrable variables that we want to estimate.
-
-## Parameters: unobservable variables
-    # alpha - learning rate - bounded between 0-1 
-    # tau - inverse temperature - bounded between 0-infinity (or realistically 0-20)
-
+// The parameters accepted by the model. Our model
+// accepts two parameters 'mu' and 'sigma'.
 parameters {
   real alpha_logit; # Define alpha_logit unbounded real no.
   real tau_logit; # Define tau_logit unbounded real no.
 }
-```
 
-```{r}
 transformed parameters {
   # define how to get from alpha logit to alpha and define alpha limits of parameter
   real <LOWER = 0, UPPER =1 > alpha = inv_logt(alpha_logit);
@@ -53,11 +32,8 @@ transformed parameters {
   real < LOWER = 0, UPPER = 20 > tau = (inv_logt(tau_logit)*20); # * tau by 20 to get it bounded between 0-20
   
 }
-```
 
-```{r}
-# 3. Model: states the model itself. In this case a reinforcement learning model
-
+// The model to be estimated. We model the output
 model {
   // Prior: Belief about alpha and tau before seeing the data
     target += normal_lpdf(alpha_logit | 0, 1.5 ); # normal distribution of alpha logit
@@ -86,7 +62,6 @@ model {
     # bernoulli (0/1 choice) where choice is associated with p.
     target += bernoulli_lpmf(choice | p) 
 }
-```
 
-# Then need R framework to create the data, fit it to Stan, and then extract the posterior draws and visualise them.
-
+# !! We have the data/choices, so we want to see how likely the choices are! Opposite way around to Assignment 01 !!
+# How many times when you sample do you get the choice actually made.
