@@ -3,90 +3,198 @@ title: "StanModel"
 output: html_document
 ---
 
+# Setup
 ```{r}
-# setup
 pacman::p_load(
-  tidyverse,
+  tidyverse,    # Data manipulation and plotting
+  here,         # Robust file paths
+  cmdstanr,     # Stan interface
   rstan,
-  bayesplot
+  posterior,    # Posterior analysis
+  bayesplot,    # Plotting MCMC
+  furrr,        # Parallel processing
+  future        # Future backend
 )
 ```
 
+```{r}
+# Parallel Setup: Leave 2 cores free for system stability
+n_cores <- parallel::detectCores() - 2
+plan(multisession, workers = n_cores)
+```
 
 ```{r}
-# 1. Data: Matching Pennies: States the observable data Stan can expect
+# Optional: Set a default ggplot theme
+theme_set(theme_classic())
+```
 
-## Data - OBSERVABLE variables:
-    # n - number of trials - Integer, with lower bound 1
-    # h - choices - 0 or 1 bounded data - Binomial
-    # players - number of players, integer with lower bound 1
-    # feedback - feedback - can be -1+1 or 0-1
-
-data {
-  int < LOWER = 1 > players; # No. of players, must be at least 1
-  int < LOWER = 1 > n; # No. of trials, must be at least 1
-  array[n] int choice; # Array "h" of choices (0 or 1) with length "n" for no. trials, 
-  array[n, players] int choice; # Array "h" of choices (0 or 1) with length "n" for no. trials, and "players" for no. of players
-  array[n] int feedback; # Array "f" of feedback (0 or 1) with length "n" for no. trials
-}
+# Simulating Data
+```{r}
+# Flag to control whether to regenerate simulation/fitting results for the knitted files
+# Set to TRUE to rerun everything (takes time!), FALSE to load saved results.
+regenerate_simulations <- TRUE # Or TRUE
 
 ```
 
 ```{r}
-# 2. Parameters: States the parameters the model will estimate. These are the UNOBSERVABLE/inferrable variables that we want to estimate.
+# --- Simulate Data for Fitting ---
+# Goal: Generate data from known models/parameters to test our fitting procedures.
 
-## Parameters: unobservable variables
-    # alpha - learning rate - bounded between 0-1 
-    # tau - inverse temperature - bounded between 0-infinity (or realistically 0-20)
+trials <- 120 # Number of trials per simulated agent
+```
 
-parameters {
-  real alpha_logit; # Define alpha_logit unbounded real no.
-  real tau_logit; # Define tau_logit unbounded real no.
+
+```{r}
+RandomAgentNoise_f <- function(rate, noise) {
+  # Ensure rate is probability (in case log-odds are passed, though not here)
+  rate_prob <- plogis(rate) # Assumes rate might be log-odds; use identity if rate is already probability
+  choice <- rbinom(1, 1, rate_prob) # Base choice
+  if (noise > 0 & rbinom(1, 1, noise) == 1) { # Check if noise occurs
+    choice <- rbinom(1, 1, 0.5) # Override with random 50/50 choice
+  }
+  return(choice)
 }
 ```
 
 ```{r}
-transformed parameters {
-  # define how to get from alpha logit to alpha and define alpha limits of parameter
-  real <LOWER = 0, UPPER =1 > alpha = inv_logt(alpha_logit);
-  # define how to get from tau logit to tau and define tau limits of parameter
-  real < LOWER = 0, UPPER = 20 > tau = (inv_logt(tau_logit)*20); # * tau by 20 to get it bounded between 0-20
+# Define Agent - what kind of player is this simulated data from?
+rl_agent_f <- function(last_choice, estimated_value, feedback, alpha = 0.4, beta=1) { 
+  # estimated value list for L and R hand
+  estimated_value <- c(estimated_value, 1-estimated_value) 
+  
+  # indexing to update the estimated value of the last choice (1 for left hand, 2 for right hand)
+  k <- last_choice + 1 
+  
+  # RL formula
+  estimated_value[k] <- estimated_value[k] + alpha * (feedback - estimated_value[k])
+  
+  #softmaxxing
+  exp_p <- exp(beta * estimated_value)
+  p <- exp_p / sum(exp_p)
+  
+  # choice based on softmax probabilities
+  choice <- sample(c(0, 1), 1, prob = p)
+  
+   return(list(
+    choice = choice,
+    estimated_value = estimated_value[1] # only return for the left hand
+  ))
+}
+```
+
+```{r} #NEXT STEP FIT THIS SIM TO RA instead of WSLS, right now "WSLS" are just changed to "RA", but we need the correct parameters 
+full_simulation <- function(alpha) {
+
+# Create empty lists for choices and feedback
+RA_choices <- rep(NA, trials)
+RL_choices <- rep(NA, trials)
+feedback_RA <- rep(NA, trials)
+feedback_RL <- rep(NA, trials)
+estimated_value_tracked <- rep(NA, trials) 
+estimated_value_tracked[1] <- 0.5 #tracking "left" hand - estiamted_value[1]
+ 
+
+RA_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 1 
+RL_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 2 
+
+for (t in 2:trials) {
+  # Feedback for agent 1 (RA) from previous trial (wins if match)
+  prev_feedback1 <- ifelse(RA_choices[t - 1] == RL_choices[t - 1], 1, 0)
+  feedback_RA[t - 1] <- prev_feedback1
+
+  # Feedback for agent 2 (Reinforcement Learning - Opponent) is the opposite (wins if mismatch)
+  prev_feedback2 <- 1 - prev_feedback1
+  feedback_RL[t - 1] <- prev_feedback2
+
+  # Both agents choose based on their own previous feedback
+  RA_choices[t] <- RandomAgentNoise_f(RA_choices[t - 1], prev_feedback1) #RA agent choice
+  
+  # RL agent choice and update estimated value based on previous feedback
+  result <- rl_agent_f(
+    RL_choices[t - 1],
+    estimated_value_tracked[t - 1],
+    prev_feedback2,
+    alpha=alpha
+  )
+  
+  # RL agent choice and update estimated value defined for current trial
+  RL_choices[t] <- result$choice
+  estimated_value_tracked[t] <- result$estimated_value
+  
   
 }
+
+# Defining the feedback across trials
+feedback_RA[trials] <- ifelse(RA_choices[trials] == RL_choices[trials], 1, 0)
+
+# Create dataframe
+df_RA_RL <- tibble(
+  trial = 1:trials,
+  Self_RA = RA_choices,
+  Opponent_RL = RL_choices,
+  Feedback_RA = feedback_RA, # 1 if Self_RA won
+  Feedback_RL = feedback_RL, # 1 if Opponent_RL won
+  RL_estimated_value_left = estimated_value_tracked,
+  RL_estimated_value_right = 1-estimated_value_tracked,
+  alpha=alpha
+) %>% mutate(
+  Cumulative_Performance = cumsum(feedback_RA) / row_number()
+)
+
+return(df_RA_RL)
+}
+```
 ```
 
 ```{r}
-# 3. Model: states the model itself. In this case a reinforcement learning model
+# --- Generate Data Across Different Conditions ---
+# Define relative paths for saving/loading simulation data
+sim_data_dir <- "simdata" # Assumes a 'simdata' subdirectory
+sim_data_file <- here(sim_data_dir, "04_randomnoise.csv") 
 
-model {
-  // Prior: Belief about alpha and tau before seeing the data
-    target += normal_lpdf(alpha_logit | 0, 1.5 ); # normal distribution of alpha logit
-    target += normal_lpdf(tau_logit | 0, 5); # normal distirbution of tau_logit
-      
-  // Likelihood: How the data depends on the parameters
-  real PE; # define PE
-  real < LOWER = 0, UPPER = 1 > EV; # define Expected value as a real with bounds
-  real < LOWER = 0, UPPER = 1 > p; # choice probability
-  
-  
-  # !! We are modelling for the left hand (one hand) as they are implicitly linked, this makes it simple
-  
-  EV[1] = 0.5; # initial EV, could also be defined up by the data as something that can be changed with the data.
-  
-  # Loop through the trials 
-  for (t in 2:n){
-    
-    # RL model
-    PE = feedback[t-1] - EV[t-1];
-    EV[t] = EV[t-1] + (alpha * PE);
-    
-    # softmax
-    p = exp(tau * EV[t]) / sum(exp(tau * EV[t]), exp(tau * (1-EV[t])));
+# Create directory if it doesn't exist
+if (!dir.exists(sim_data_dir)) dir.create(sim_data_dir)
 
-    # bernoulli (0/1 choice) where choice is associated with p.
-    target += bernoulli_lpmf(choice | p) 
+if (regenerate_simulations || !file.exists(sim_data_file)) {
+  cat("Generating new simulation data...\n")
+  # Use expand_grid for cleaner parameter combinations
+  param_grid <- expand_grid(
+    noise = seq(0, 0.5, 0.1), # Noise levels
+    rate = seq(0, 1, 0.1)     # Bias rate levels (probability scale)
+  )
+
+  # Use map_dfr for efficient simulation across parameters
+  d <- pmap_dfr(param_grid, function(noise, rate) {
+    # Simulate choices for one agent/condition
+    choices <- map_int(1:trials, ~RandomAgentNoise_f(qlogis(rate), noise)) # Convert rate to log-odds for function if needed
+    # Create tibble for this condition
+    tibble(
+      trial = 1:trials,
+      choice = choices,
+      true_rate = rate, # Store the true rate used for generation
+      true_noise = noise # Store the true noise used
+    )
+  }) %>%
+  # Calculate cumulative rate for visualization
+  group_by(true_rate, true_noise) %>%
+  mutate(cumulative_rate = cumsum(choice) / row_number()) %>%
+  ungroup()
+
+  # Save the generated data
+  write_csv(d, sim_data_file)
+  cat("Generated new simulation data and saved to", sim_data_file, "\n")
+} else {
+  # Load existing simulation data
+  d <- read_csv(sim_data_file)
+  cat("Loaded existing simulation data from", sim_data_file, "\n")
 }
 ```
+
 
 # Then need R framework to create the data, fit it to Stan, and then extract the posterior draws and visualise them.
+
+#RUN STAN MODEL feeding it simulated data from above 
+```{r}
+
+```
 
