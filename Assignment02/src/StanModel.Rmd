@@ -39,7 +39,6 @@ regenerate_simulations <- TRUE # Or TRUE
 ```{r}
 # --- Simulate Data for Fitting ---
 # Goal: Generate data from known models/parameters to test our fitting procedures.
-
 trials <- 120 # Number of trials per simulated agent
 ```
 
@@ -209,6 +208,46 @@ print(p1)
 
 #RUN STAN MODEL feeding it simulated data from above 
 ```{r}
+# Specify model file path
+stan_file_bernoulli <- here("Assignment02/src/Stan_Model.stan")
+# Define path for saving fitted model object
+stan_results_dir <- here("Assignment02/src/Stan_results")
+model_file_bernoulli <- here(stan_results_dir, "04_SimpleBernoulli.rds") 
 
+if (!dir.exists(stan_results_dir)) dir.create(stan_results_dir)
+
+if (regenerate_simulations || !file.exists(model_file_bernoulli)) {
+  cat("Compiling and fitting Stan model (Bernoulli)...\n")
+  # Compile the Stan model (only needs to be done once unless code changes)
+  mod_bernoulli <- cmdstan_model(stan_file_bernoulli,
+                                 cpp_options = list(stan_threads = FALSE), # Enable threading
+                                 stanc_options = list("O1")) # Basic optimization
+}
+```
+
+
+```{r}
+# Sample from the posterior distribution using MCMC
+  fit_bernoulli <- mod_bernoulli$sample(
+    data = data_for_stan,          # The data list we prepared
+    seed = 123,                    # For reproducible MCMC sampling
+    chains = 4,                    # Number of parallel Markov chains (recommend 4)
+    parallel_chains = 4, # Run chains in parallel
+    #threads_per_chain = 1,         # For within-chain parallelization (usually 1 is fine)
+    iter_warmup = 1000,            # Number of warmup iterations per chain (discarded)
+    iter_sampling = 2000,          # Number of sampling iterations per chain (kept)
+    refresh = 0,                   # How often to print progress updates. 0 means never since the model is so fast
+    max_treedepth = 10,            # Controls complexity of MCMC steps (adjust if needed)
+    adapt_delta = 0.8              # Target acceptance rate (adjust if divergences occur)
+  )
+
+  # Save the fitted model object
+  fit_bernoulli$save_object(file = model_file_bernoulli)
+  cat("Model fit completed and saved to:", model_file_bernoulli, "\n")
+} else {
+  # Load existing fitted model object
+  fit_bernoulli <- readRDS(model_file_bernoulli)
+  cat("Loaded existing model fit from:", model_file_bernoulli, "\n")
+}
 ```
 
