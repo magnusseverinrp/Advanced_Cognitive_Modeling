@@ -45,9 +45,8 @@ trials <- 120 # Number of trials per simulated agent
 
 
 ```{r}
-RandomAgentNoise_f <- function(rate, noise) {
+RandomAgentNoise_f <- function(rate_prob, noise) {
   # Ensure rate is probability (in case log-odds are passed, though not here)
-  rate_prob <- plogis(rate) # Assumes rate might be log-odds; use identity if rate is already probability
   choice <- rbinom(1, 1, rate_prob) # Base choice
   if (noise > 0 & rbinom(1, 1, noise) == 1) { # Check if noise occurs
     choice <- rbinom(1, 1, 0.5) # Override with random 50/50 choice
@@ -82,7 +81,9 @@ rl_agent_f <- function(last_choice, estimated_value, feedback, alpha = 0.4, beta
 }
 ```
 
-```{r} #NEXT STEP FIT THIS SIM TO RA instead of WSLS, right now "WSLS" are just changed to "RA", but we need the correct parameters 
+
+#NEXT STEP FIT THIS SIM TO RA instead of WSLS, right now "WSLS" are just changed to "RA", but we need the correct parameters 
+```{r} 
 full_simulation <- function(alpha) {
 
 # Create empty lists for choices and feedback
@@ -107,7 +108,7 @@ for (t in 2:trials) {
   feedback_RL[t - 1] <- prev_feedback2
 
   # Both agents choose based on their own previous feedback
-  RA_choices[t] <- RandomAgentNoise_f(RA_choices[t - 1], prev_feedback1) #RA agent choice
+  RA_choices[t] <- RandomAgentNoise_f(rate=1.5, noise=0.2) #RA agent choice
   
   # RL agent choice and update estimated value based on previous feedback
   result <- rl_agent_f(
