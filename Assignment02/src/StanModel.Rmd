@@ -57,7 +57,7 @@ RandomAgentNoise_f <- function(rate_prob, noise) {
 
 ```{r}
 # Define Agent - what kind of player is this simulated data from?
-rl_agent_f <- function(last_choice, estimated_value, feedback, alpha = 0.4, beta=1) { 
+rl_agent_f <- function(last_choice, estimated_value, feedback, alpha =0.4, tau=1) { 
   # estimated value list for L and R hand
   estimated_value <- c(estimated_value, 1-estimated_value) 
   
@@ -68,7 +68,7 @@ rl_agent_f <- function(last_choice, estimated_value, feedback, alpha = 0.4, beta
   estimated_value[k] <- estimated_value[k] + alpha * (feedback - estimated_value[k])
   
   #softmaxxing
-  exp_p <- exp(beta * estimated_value)
+  exp_p <- exp(tau * estimated_value)
   p <- exp_p / sum(exp_p)
   
   # choice based on softmax probabilities
@@ -84,7 +84,7 @@ rl_agent_f <- function(last_choice, estimated_value, feedback, alpha = 0.4, beta
 
 #NEXT STEP FIT THIS SIM TO RA instead of WSLS, right now "WSLS" are just changed to "RA", but we need the correct parameters 
 ```{r} 
-full_simulation <- function(alpha) {
+full_simulation <- function(alpha, tau) {
 
 # Create empty lists for choices and feedback
 RA_choices <- rep(NA, trials)
@@ -99,13 +99,13 @@ RA_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 1
 RL_choices[1] <- sample(c(0, 1), 1) #choice on trial 1 for agent 2 
 
 for (t in 2:trials) {
-  # Feedback for agent 1 (RA) from previous trial (wins if match)
-  prev_feedback1 <- ifelse(RA_choices[t - 1] == RL_choices[t - 1], 1, 0)
-  feedback_RA[t - 1] <- prev_feedback1
+  # Feedback for agent 1 (RL) from previous trial (wins if match)
+  prev_feedback1 <- ifelse(RL_choices[t - 1] == RA_choices[t - 1], 1, 0)
+  feedback_RL[t - 1] <- prev_feedback1
 
-  # Feedback for agent 2 (Reinforcement Learning - Opponent) is the opposite (wins if mismatch)
+  # Feedback for agent 2 (RA - Opponent) is the opposite (wins if mismatch)
   prev_feedback2 <- 1 - prev_feedback1
-  feedback_RL[t - 1] <- prev_feedback2
+  feedback_RA[t - 1] <- prev_feedback2
 
   # Both agents choose based on their own previous feedback
   RA_choices[t] <- RandomAgentNoise_f(rate_prob=0.8, noise=0.2) #RA agent choice
@@ -114,8 +114,9 @@ for (t in 2:trials) {
   result <- rl_agent_f(
     RL_choices[t - 1],
     estimated_value_tracked[t - 1],
-    prev_feedback2,
-    alpha=alpha
+    prev_feedback1,
+    alpha=alpha,
+    tau = tau
   )
   
   # RL agent choice and update estimated value defined for current trial
@@ -124,31 +125,27 @@ for (t in 2:trials) {
 }
 
 # Defining the feedback across trials
-feedback_RA[trials] <- ifelse(RA_choices[trials] == RL_choices[trials], 1, 0)
+feedback_RL[trials] <- ifelse(RL_choices[trials] == RA_choices[trials], 1, 0)
+feedback_RA[trials] <- ifelse(RL_choices[trials] == RA_choices[trials], 0, 1)
 
 # Create dataframe
 df_RA_RL <- tibble(
   trial = 1:trials,
-  Self_RA = RA_choices,
-  Opponent_RL = RL_choices,
-  Feedback_RA = feedback_RA, # 1 if Self_RA won
-  Feedback_RL = feedback_RL, # 1 if Opponent_RL won
+  Choice_RL = RL_choices,
+  Opponent_RA = RA_choices,
+  Feedback_RL = feedback_RL, # 1 if agent_RL won
+  Feedback_RA = feedback_RA, # 1 if opponent_RA won
   RL_estimated_value_left = estimated_value_tracked,
   RL_estimated_value_right = 1-estimated_value_tracked,
-  alpha=alpha
-) %>% mutate(
-  Cumulative_Performance = cumsum(feedback_RA) / row_number()
-)
+  true_alpha=alpha,
+  true_tau= tau
+) %>% 
+  group_by(true_alpha, true_tau) %>%
+  mutate(cumulative_rate = cumsum(Choice_RL) / row_number()) %>%
+  ungroup()
 
 return(df_RA_RL)
 }
-```
-
-```{r}
-df <- full_simulation(alpha=0.4)
-
-# save to csv
-write_csv(df, "../data/RA_RL_simulation.csv")
 ```
 
 
@@ -157,36 +154,23 @@ write_csv(df, "../data/RA_RL_simulation.csv")
 
 # --- Generate Data Across Different Conditions ---
 # Define relative paths for saving/loading simulation data
-sim_data_dir <- "../data" # saves to data 'data' subdirectory
-sim_data_file <- here(sim_data_dir, "04_randomnoise.csv") 
+sim_data_dir <- "Assignment02/data" # saves to data 'data' subdirectory
+sim_data_file <- here(sim_data_dir, "Simulation_01.csv") 
 
 # Create directory if it doesn't exist
-if (!dir.exists(sim_data_dir)) dir.create(sim_data_dir)
+if (!dir.exists(sim_data_dir)) dir.create(sim_data_dir, recursive = TRUE)
 
 if (regenerate_simulations || !file.exists(sim_data_file)) {
   cat("Generating new simulation data...\n")
   # Use expand_grid for cleaner parameter combinations
   param_grid <- expand_grid(
-    noise = seq(0, 0.5, 0.1), # Noise levels
-    rate = seq(0, 1, 0.1)     # Bias rate levels (probability scale)
+    alpha = seq(0, 1, 0.1), # alpha levels
+    tau = c(0.5, 1, 5, 10, 15, 20)     # Tau temp levels
   )
 
+  
   # Use map_dfr for efficient simulation across parameters
-  d <- pmap_dfr(param_grid, function(noise, rate) {
-    # Simulate choices for one agent/condition
-    choices <- map_int(1:trials, ~RandomAgentNoise_f(qlogis(rate), noise)) # Convert rate to log-odds for function if needed
-    # Create tibble for this condition
-    tibble(
-      trial = 1:trials,
-      choice = choices,
-      true_rate = rate, # Store the true rate used for generation
-      true_noise = noise # Store the true noise used
-    )
-  }) %>%
-  # Calculate cumulative rate for visualization
-  group_by(true_rate, true_noise) %>%
-  mutate(cumulative_rate = cumsum(choice) / row_number()) %>%
-  ungroup()
+  d <- pmap_dfr(param_grid, full_simulation) 
 
   # Save the generated data
   write_csv(d, sim_data_file)
@@ -196,6 +180,28 @@ if (regenerate_simulations || !file.exists(sim_data_file)) {
   d <- read_csv(sim_data_file)
   cat("Loaded existing simulation data from", sim_data_file, "\n")
 }
+```
+
+```{r}
+# --- Visualize Simulated Data ---
+# Plot cumulative alpha, faceted by tau level
+p1 <- ggplot(d, aes(x = trial, y = cumulative_rate, group = true_alpha, color = true_tau)) +
+  geom_line(alpha = 0.8) +
+  geom_hline(yintercept = 0.5, linetype = "dashed") +
+  scale_color_viridis_c() + # Use perceptually uniform color scale
+  facet_wrap(~paste("Alpha =", true_alpha)) + # Facet by noise level
+  labs(
+    title = "Simulated Choice Behavior (Cumulative Rate)",
+    subtitle = "Agents with different alpha and tau levels",
+    x = "Trial Number",
+    y = "Cumulative Proportion Choosing 'Right'",
+    color = "True Tau Rate"
+  ) +
+  theme_minimal() +
+  ylim(0, 1)
+
+print(p1)
+
 ```
 
 
