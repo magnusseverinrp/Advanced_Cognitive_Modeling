@@ -108,7 +108,7 @@ for (t in 2:trials) {
   feedback_RL[t - 1] <- prev_feedback2
 
   # Both agents choose based on their own previous feedback
-  RA_choices[t] <- RandomAgentNoise_f(rate=1.5, noise=0.2) #RA agent choice
+  RA_choices[t] <- RandomAgentNoise_f(rate_prob=0.8, noise=0.2) #RA agent choice
   
   # RL agent choice and update estimated value based on previous feedback
   result <- rl_agent_f(
@@ -121,8 +121,6 @@ for (t in 2:trials) {
   # RL agent choice and update estimated value defined for current trial
   RL_choices[t] <- result$choice
   estimated_value_tracked[t] <- result$estimated_value
-  
-  
 }
 
 # Defining the feedback across trials
@@ -145,7 +143,11 @@ df_RA_RL <- tibble(
 return(df_RA_RL)
 }
 ```
+
+```{r}
+df <- full_simulation(alpha=0.4)
 ```
+
 
 ```{r}
 # --- Generate Data Across Different Conditions ---
