@@ -1,4 +1,9 @@
 ---
+title: "Untitled"
+output: html_document
+---
+
+---
 title: "StanModel"
 output: html_document
 ---
@@ -148,15 +153,6 @@ return(df_RA_RL)
 }
 ```
 
-<<<<<<< HEAD
-=======
-```{r}
-df <- full_simulation(alpha=0.4)
-
-# save to csv
-write_csv(df, "../data/RA_RL_simulation.csv")
-```
->>>>>>> f502e3f81bda0545d33ffce39fc4701b5112846c
 
 ```{r}
 # THIS IS FOR GETTING SIMULATIONS OF VARIOUS RATES -> DON't NEED I don't think...
