@@ -153,6 +153,8 @@ write_csv(df, "../data/RA_RL_simulation.csv")
 
 
 ```{r}
+# THIS IS FOR GETTING SIMULATIONS OF VARIOUS RATES -> DON't NEED I don't think...
+
 # --- Generate Data Across Different Conditions ---
 # Define relative paths for saving/loading simulation data
 sim_data_dir <- "../data" # saves to data 'data' subdirectory
