@@ -204,7 +204,7 @@ print(p1)
 # isolate for one alpha tau combination parameters then fit to the stan model
 
 # Subset data for one specific agent simulation (alpha=0.8, tau=0.5)
-d1 <- d %>% filter(true_alpha == 0.8, true_tau == 5) 
+d1 <- d %>% filter(true_alpha == 0.8, true_tau == 15) 
 
 # Stan requires data in a list format
 data_for_stan <- list(
@@ -263,7 +263,10 @@ if (regenerate_simulations || !file.exists(model_file_bernoulli)) {
 }
 ```
 
-# Diagnostics
+
+
+
+# DIAGNOSTICS
 
 ```{r}
 # 1. Check for Divergent Transitions
@@ -295,6 +298,10 @@ p_rank <- mcmc_rank_hist(draws_df, pars = c("alpha", "tau")) +
   ggtitle("Rank Histogram: Chains explored the same space")
 
 p_trace / p_rank
+
+
+# Checking prior alpha to posterior alpha distribution - ideally, the posterior (blue) should be more concentrated around the true value (0.8) than the prior (red), which is more spread out.
+ggplot(draws_df) + geom_histogram(aes(x=alpha_prior), colour = "red") + geom_histogram(aes(x = alpha), colour ="blue")
 ```
 
 # PRIOR PREDICTIVE CHECKS
@@ -303,7 +310,7 @@ p_trace / p_rank
 # Extract the summary statistic calculated from prior predictive simulations
 # 'prior_rep_sum' was calculated within the generated quantities block
 draws_gq <- as_draws_df(fit_bernoulli$draws()) # Ensure we have the draws as a dataframe
-observed_sum <- sum(observed_data_list$h) # Total number of 'right' choices in the actual observed data
+observed_sum <- sum(data_for_stan$choice) # Total number of 'right' choices in the actual observed data
 
 ppc_prior_ggplot <- ggplot(draws_gq, aes(x = prior_rep_sum)) +
   # Draw the histogram of the model's prior predictions (light red)
@@ -320,4 +327,6 @@ ppc_prior_ggplot <- ggplot(draws_gq, aes(x = prior_rep_sum)) +
 
 ppc_prior_ggplot
 ```
+
+The prior predictive distribution (red histogram) shows the generative space induced by our prior: the wide range of outcomes (total ‘right’ choices) considered possible by the model before seeing the data, driven solely by the prior on alpha_logit and tau_logit. Our priors seem very biased...
 
