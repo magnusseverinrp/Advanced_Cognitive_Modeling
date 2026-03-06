@@ -13,7 +13,8 @@ pacman::p_load(
   posterior,    # Posterior analysis
   bayesplot,    # Plotting MCMC
   furrr,        # Parallel processing
-  future        # Future backend
+  future,        # Future backend
+  patchwork
 )
 ```
 
@@ -81,7 +82,6 @@ rl_agent_f <- function(last_choice, estimated_value, feedback, alpha =0.4, tau=1
 ```
 
 
-#NEXT STEP FIT THIS SIM TO RA instead of WSLS, right now "WSLS" are just changed to "RA", but we need the correct parameters 
 ```{r} 
 full_simulation <- function(alpha, tau) {
 
@@ -149,9 +149,7 @@ return(df_RA_RL)
 
 
 ```{r}
-# THIS IS FOR GETTING SIMULATIONS OF VARIOUS RATES -> DON't NEED I don't think...
-
-# --- Generate Data Across Different Conditions ---
+# --- Generate Data Across Different Parameters ---
 # Define relative paths for saving/loading simulation data
 sim_data_dir <- "Assignment02/data" # saves to data 'data' subdirectory
 sim_data_file <- here(sim_data_dir, "Simulation_01.csv") 
@@ -184,7 +182,7 @@ if (regenerate_simulations || !file.exists(sim_data_file)) {
 ```{r}
 # --- Visualize Simulated Data ---
 # Plot cumulative alpha, faceted by tau level
-p1 <- ggplot(d, aes(x = trial, y = cumulative_rate, group = true_alpha, color = true_tau)) +
+p1 <- ggplot(d, aes(x = trial, y = cumulative_rate, group = true_tau, color = true_tau)) +
   geom_line(alpha = 0.8) +
   geom_hline(yintercept = 0.5, linetype = "dashed") +
   scale_color_viridis_c() + # Use perceptually uniform color scale
@@ -202,17 +200,35 @@ p1 <- ggplot(d, aes(x = trial, y = cumulative_rate, group = true_alpha, color = 
 print(p1)
 
 ```
+```{r}
+# isolate for one alpha tau combination parameters then fit to the stan model
+
+# Subset data for one specific agent simulation (alpha=0.8, tau=0.5)
+d1 <- d %>% filter(true_alpha == 0.8, true_tau == 5) 
+
+# Stan requires data in a list format
+data_for_stan <- list(
+  players = 1,
+  n = trials,     # Number of trials (integer)
+  choice = d1$Choice_RL,   # Vector of choices (0s and 1s) for the RL agent
+  opp_choice = d1$Opponent_RA # Vector of opponent choices (0s and 1s) for the RA agent
+)
+
+str(data_for_stan) # Show the structure of the list
+
+```
 
 
 # Then need R framework to create the data, fit it to Stan, and then extract the posterior draws and visualise them.
 
 #RUN STAN MODEL feeding it simulated data from above 
 ```{r}
+## --- Compile and Fit ---
 # Specify model file path
 stan_file_bernoulli <- here("Assignment02/src/Stan_Model.stan")
 # Define path for saving fitted model object
-stan_results_dir <- here("Assignment02/src/Stan_results")
-model_file_bernoulli <- here(stan_results_dir, "04_SimpleBernoulli.rds") 
+stan_results_dir <- "Assignment02/src/Stan_results"
+model_file_bernoulli <- here(stan_results_dir, "04_SimpleBernoulli.rds")
 
 if (!dir.exists(stan_results_dir)) dir.create(stan_results_dir)
 
@@ -222,12 +238,8 @@ if (regenerate_simulations || !file.exists(model_file_bernoulli)) {
   mod_bernoulli <- cmdstan_model(stan_file_bernoulli,
                                  cpp_options = list(stan_threads = FALSE), # Enable threading
                                  stanc_options = list("O1")) # Basic optimization
-}
-```
 
-
-```{r}
-# Sample from the posterior distribution using MCMC
+  # Sample from the posterior distribution using MCMC
   fit_bernoulli <- mod_bernoulli$sample(
     data = data_for_stan,          # The data list we prepared
     seed = 123,                    # For reproducible MCMC sampling
@@ -249,5 +261,63 @@ if (regenerate_simulations || !file.exists(model_file_bernoulli)) {
   fit_bernoulli <- readRDS(model_file_bernoulli)
   cat("Loaded existing model fit from:", model_file_bernoulli, "\n")
 }
+```
+
+# Diagnostics
+
+```{r}
+# 1. Check for Divergent Transitions
+diagnostics <- fit_bernoulli$diagnostic_summary()
+cat("Divergent transitions per chain:", paste(diagnostics$num_divergent, collapse = ", "), "\n")
+```
+
+```{r}
+# 2. Check R-hat and ESS metrics - Alpha parameter
+fit_summary <- fit_bernoulli$summary(variables = c("alpha", "tau"))
+fit_summary <- as.data.frame(fit_summary)
+
+print(fit_summary %>% select(variable, mean, rhat, ess_bulk, ess_tail))
+```
+
+
+```{r}
+# 3. Visual Checks (Trace and Rank Plots)
+draws_df <- as_draws_df(fit_bernoulli$draws())
+
+# A healthy trace plot is well-mixed with no wandering
+p_trace <- mcmc_trace(draws_df, pars = c("alpha", "tau")) + 
+  theme_classic() + 
+  ggtitle("Trace Plot: Well-mixed chains")
+
+# A healthy rank histogram has uniform bars across all chains
+p_rank <- mcmc_rank_hist(draws_df, pars = c("alpha", "tau")) + 
+  theme_classic() + 
+  ggtitle("Rank Histogram: Chains explored the same space")
+
+p_trace / p_rank
+```
+
+# PRIOR PREDICTIVE CHECKS
+
+```{r}
+# Extract the summary statistic calculated from prior predictive simulations
+# 'prior_rep_sum' was calculated within the generated quantities block
+draws_gq <- as_draws_df(fit_bernoulli$draws()) # Ensure we have the draws as a dataframe
+observed_sum <- sum(observed_data_list$h) # Total number of 'right' choices in the actual observed data
+
+ppc_prior_ggplot <- ggplot(draws_gq, aes(x = prior_rep_sum)) +
+  # Draw the histogram of the model's prior predictions (light red)
+  geom_histogram(fill = "#ffbaba", color = "#ff5252", bins = 30, alpha = 0.8) +
+  
+  # Add the vertical line for the actual observed data (dark red)
+  geom_vline(xintercept = observed_sum, color = "darkred", linewidth = 1.2) +
+  
+  # Labels and theming
+  ggtitle("Prior Predictive Check: Total 'Right' Choices") +
+  xlab(paste("Total Number of 'Right' Choices (out of", trials, "trials)")) +
+  ylab("Frequency") +
+  theme_classic()
+
+ppc_prior_ggplot
 ```
 
