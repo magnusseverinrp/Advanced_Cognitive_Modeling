@@ -321,5 +321,5 @@ ppc_prior_ggplot <- ggplot(draws_gq, aes(x = prior_rep_sum)) +
 ppc_prior_ggplot
 ```
 
-The prior predictive distribution (red histogram) shows the generative space induced by our prior: the wide range of outcomes (total ‘right’ choices) considered possible by the model before seeing the data, driven solely by the prior on alpha_logit and tau_logit. Our priors seem very biased...
+The prior predictive distribution (red histogram) shows the generative space induced by our prior: the wide range of outcomes (total ‘right’ choices) considered possible by the model before seeing the data, driven solely by the prior on alpha_logit and tau_logit. Our priors seem very biased... The vertical line (dark red) represents the actual observed data (total ‘right’ choices). If this line falls in a region of the histogram with very low density, it suggests that our priors are not well-aligned with the observed data, which could lead to poor model performance. In this case, the observed data is in the middle of the prior predictive distribution, indicating that our priors are ok and are appropriately centered around plausible values for alpha and tau. This suggests we can continue with our priors as we can assume they reflect our expectations about the parameters based on domain knowledge or previous research.
 
