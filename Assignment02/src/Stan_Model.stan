@@ -74,7 +74,7 @@ model {
 generated quantities {
   // Create the prior for alpha and tau
   real alpha_logit_prior = normal_rng(0, 1.5);
-  real tau_logit_prior   = normal_rng(0, 5);
+  real tau_logit_prior   = normal_rng(0, 1.5);
   
   // --- Parameter Transformation ---
   real alpha_prior = inv_logit(alpha_logit_prior);

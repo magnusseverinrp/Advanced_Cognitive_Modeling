@@ -197,7 +197,7 @@ print(p1)
 # isolate for one alpha tau combination parameters then fit to the stan model
 
 # Subset data for one specific agent simulation (alpha=0.8, tau=0.5)
-d1 <- d %>% filter(true_alpha == 0.8, true_tau == 15) 
+d1 <- d %>% filter(true_alpha == 0.8, true_tau == 1) 
 
 # Stan requires data in a list format
 data_for_stan <- list(
@@ -256,7 +256,22 @@ if (regenerate_simulations || !file.exists(model_file_bernoulli)) {
 }
 ```
 
+## SUMMARIZE RESULTS & EXTRACT POSTERUIOR DRAWS
+```{r}
+# Summary
+fit_bernoulli$summary()
+```
 
+```{r}
+# Extract posterior samples and include sampling of the prior:
+draws_df_fit_bernoulli <- as_draws_df(fit_bernoulli$draws()) 
+
+# Explicitly extract both parameters
+alpha_param <- draws_df_fit_bernoulli$alpha
+tau_param <- draws_df_fit_bernoulli$tau
+cat("Successfully extracted alpha parameter with", length(alpha_param), "values\n")
+cat("Successfully extracted tau parameter with", length(tau_param), "values\n")
+```
 
 
 # MCMC DIAGNOSTICS
@@ -293,6 +308,19 @@ p_rank <- mcmc_rank_hist(draws_df, pars = c("alpha", "tau")) +
 p_trace / p_rank
 
 ```
+
+# Visualize the posterior distributions for alpha and tau parameters across MCMC iterations
+```{r}
+ggplot(draws_df_fit_bernoulli, aes(.iteration, alpha, group = .chain, color = .chain)) +
+  geom_line() +
+  theme_classic()
+
+ggplot(draws_df_fit_bernoulli, aes(.iteration, tau, group = .chain, color = .chain)) +
+  geom_line() +
+  theme_classic()
+
+```
+
 
 # PRIOR PREDICTIVE CHECK - Do my priors generate plausible data?
 ```{r}
@@ -343,43 +371,49 @@ ggplot(draws_df_fit_bernoulli) +
 ggplot(draws_df_fit_bernoulli) +
   geom_density(aes(tau), fill = "blue", alpha = 0.8) +
   geom_density(aes(tau_prior), fill = "red", alpha = 0.8) +
-  geom_vline(xintercept = 0.8, linetype = "dashed", color = "black", linewidth = 1.5) +
+  geom_vline(xintercept = 5, linetype = "dashed", color = "black", linewidth = 1.5) +
   xlab("Rate") +
   ylab("Posterior Density") +
   theme_classic()
 ```
 
-PRIOR-POSTERIOR UPDATE CHECK - Did data shift alpha away from prior?
 The prior predictive distribution (red histogram) shows the generative space induced by our prior: the wide range of outcomes (total ‘right’ choices) considered possible by the model before seeing the data, driven solely by the prior on alpha_logit and tau_logit.
 
 
-### Summarise results
+# POSTERIOR PREDICTIVE CHECKS - Does the Fitted Model Resemble the Data?
 ```{r}
-# Summary
-fit_bernoulli$summary()
-```
+# Extract posterior predictive simulations from the fitted object
+# This matrix has dimensions: [number_of_draws, number_of_trials]
+choice_post_rep <- fit_bernoulli$draws("choice_post_rep", format = "matrix")
 
-```{r}
-# Extract posterior samples and include sampling of the prior:
-draws_df_fit_bernoulli <- as_draws_df(fit_bernoulli$draws()) 
+# Calculate the test statistic T(y) for the *actual* empirical data
+observed_sum <- sum(data_for_stan$choice) 
 
-# Explicitly extract both parameters
-alpha_param <- draws_df_fit_bernoulli$alpha
-tau_param <- draws_df_fit_bernoulli$tau
-cat("Successfully extracted alpha parameter with", length(alpha_param), "values\n")
-cat("Successfully extracted tau parameter with", length(tau_param), "values\n")
-```
+# Calculate the test statistic T(y_rep) for *each* replicated dataset
+# We compute the row-wise sum across the posterior draws
+post_rep_sums <- rowSums(choice_post_rep)
 
-```{r}
-ggplot(draws_df_fit_bernoulli, aes(.iteration, alpha, group = .chain, color = .chain)) +
-  geom_line() +
+# Bundle into a tibble for strictly structured plotting
+ppc_df <- tibble(
+  Replicated_Sum = post_rep_sums
+)
+
+# --- Graphical Posterior Predictive Check using ggplot2 ---
+ppc_posterior_ggplot <- ggplot(ppc_df, aes(x = Replicated_Sum)) +
+  geom_histogram(fill = "skyblue", color = "white", alpha = 0.7, bins =30)+
+  geom_vline(xintercept = observed_sum, color = "black", linetype = "dashed", linewidth = 1) +
+  ggtitle("Posterior Predictive Check: Total 'Right' Choices") +
+  xlab(paste("Total Number of 'Right' Choices (out of", trials, "trials)")) +
+  ylab("Frequency (Replicated Datasets)") +
+  # Add annotation for the empirical ground truth
+  annotate(
+    "text", x = observed_sum, y = Inf, 
+    label = "Empirical data", 
+    vjust = 2, hjust = if(observed_sum > trials/2) 1.1 else -0.1, 
+    size = 4, fontface = "bold"
+  ) +
   theme_classic()
 
-ggplot(draws_df_fit_bernoulli, aes(.iteration, tau, group = .chain, color = .chain)) +
-  geom_line() +
-  theme_classic()
-
+ppc_posterior_ggplot
 ```
-
-
 
