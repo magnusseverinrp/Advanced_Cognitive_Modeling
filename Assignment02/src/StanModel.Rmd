@@ -259,7 +259,7 @@ if (regenerate_simulations || !file.exists(model_file_bernoulli)) {
 
 
 
-# DIAGNOSTICS
+# MCMC DIAGNOSTICS
 
 ```{r}
 # 1. Check for Divergent Transitions
@@ -292,13 +292,9 @@ p_rank <- mcmc_rank_hist(draws_df, pars = c("alpha", "tau")) +
 
 p_trace / p_rank
 
-
-# Checking prior alpha to posterior alpha distribution - ideally, the posterior (blue) should be more concentrated around the true value (0.8) than the prior (red), which is more spread out.
-ggplot(draws_df) + geom_histogram(aes(x=alpha_prior), colour = "red") + geom_histogram(aes(x = alpha), colour ="blue")
 ```
 
-# PRIOR PREDICTIVE CHECKS
-
+# PRIOR PREDICTIVE CHECK - Do my priors generate plausible data?
 ```{r}
 # Extract the summary statistic calculated from prior predictive simulations
 # 'prior_rep_sum' was calculated within the generated quantities block
@@ -320,6 +316,70 @@ ppc_prior_ggplot <- ggplot(draws_gq, aes(x = prior_rep_sum)) +
 
 ppc_prior_ggplot
 ```
+The vertical line (dark red) represents the actual observed data (total ‘right’ choices). If this line falls in a region of the histogram with very low density, it suggests that our priors are not well-aligned with the observed data, which could lead to poor model performance. In this case, the observed data is in the middle of the prior predictive distribution, indicating that our priors are ok and are appropriately centered around plausible values for alpha and tau. This suggests we can continue with our priors as we can assume they reflect our expectations about the parameters based on domain knowledge or previous research.
 
-The prior predictive distribution (red histogram) shows the generative space induced by our prior: the wide range of outcomes (total ‘right’ choices) considered possible by the model before seeing the data, driven solely by the prior on alpha_logit and tau_logit. Our priors seem very biased... The vertical line (dark red) represents the actual observed data (total ‘right’ choices). If this line falls in a region of the histogram with very low density, it suggests that our priors are not well-aligned with the observed data, which could lead to poor model performance. In this case, the observed data is in the middle of the prior predictive distribution, indicating that our priors are ok and are appropriately centered around plausible values for alpha and tau. This suggests we can continue with our priors as we can assume they reflect our expectations about the parameters based on domain knowledge or previous research.
+
+# PRIOR-POSTERIOR UPDATE CHECK - Did data shift alpha away from prior?
+```{r}
+# Checking prior alpha to posterior alpha distribution - ideally, the posterior (blue) should be more concentrated around the true value (0.8) than the prior (red), which is more spread out.
+ggplot(draws_df) + geom_histogram(aes(x=alpha_prior), colour = "red") + geom_histogram(aes(x = alpha), colour ="blue")
+
+ggplot(draws_df) + geom_histogram(aes(x=tau_prior), colour = "red") + geom_histogram(aes(x = tau), colour ="blue")
+```
+This is just an alternative way to show the same as the histograms above.
+```{r}
+# Now let's plot the density for alpha (prior and posterior)
+ggplot(draws_df_fit_bernoulli) +
+  geom_density(aes(alpha), fill = "blue", alpha = 0.8) +
+  geom_density(aes(alpha_prior), fill = "red", alpha = 0.8) +
+  geom_vline(xintercept = 0.8, linetype = "dashed", color = "black", linewidth = 1.5) +
+  xlab("Alpha") +
+  ylab("Posterior Density") +
+  theme_classic()
+```
+
+```{r}
+# plot tau prior and tau true posterior density check
+ggplot(draws_df_fit_bernoulli) +
+  geom_density(aes(tau), fill = "blue", alpha = 0.8) +
+  geom_density(aes(tau_prior), fill = "red", alpha = 0.8) +
+  geom_vline(xintercept = 0.8, linetype = "dashed", color = "black", linewidth = 1.5) +
+  xlab("Rate") +
+  ylab("Posterior Density") +
+  theme_classic()
+```
+
+PRIOR-POSTERIOR UPDATE CHECK - Did data shift alpha away from prior?
+The prior predictive distribution (red histogram) shows the generative space induced by our prior: the wide range of outcomes (total ‘right’ choices) considered possible by the model before seeing the data, driven solely by the prior on alpha_logit and tau_logit.
+
+
+### Summarise results
+```{r}
+# Summary
+fit_bernoulli$summary()
+```
+
+```{r}
+# Extract posterior samples and include sampling of the prior:
+draws_df_fit_bernoulli <- as_draws_df(fit_bernoulli$draws()) 
+
+# Explicitly extract both parameters
+alpha_param <- draws_df_fit_bernoulli$alpha
+tau_param <- draws_df_fit_bernoulli$tau
+cat("Successfully extracted alpha parameter with", length(alpha_param), "values\n")
+cat("Successfully extracted tau parameter with", length(tau_param), "values\n")
+```
+
+```{r}
+ggplot(draws_df_fit_bernoulli, aes(.iteration, alpha, group = .chain, color = .chain)) +
+  geom_line() +
+  theme_classic()
+
+ggplot(draws_df_fit_bernoulli, aes(.iteration, tau, group = .chain, color = .chain)) +
+  geom_line() +
+  theme_classic()
+
+```
+
+
 
