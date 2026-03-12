@@ -57,26 +57,20 @@ RandomAgentNoise_f <- function(rate_prob, noise) {
 
 ```{r}
 # Define Agent - what kind of player is this simulated data from?
-rl_agent_f <- function(last_choice, estimated_value, feedback, alpha =0.4, tau=1) { 
-  # estimated value list for L and R hand
-  estimated_value <- c(estimated_value, 1-estimated_value) 
+rl_agent_f <- function(opp_choice, estimated_value, alpha =0.4, tau=1) { 
   
-  # indexing to update the estimated value of the last choice (1 for left hand, 2 for right hand)
-  k <- last_choice + 1 
-  
-  # RL formula
-  estimated_value[k] <- estimated_value[k] + alpha * (feedback - estimated_value[k])
-  
-  #softmaxxing
-  exp_p <- exp(tau * estimated_value)
-  p <- exp_p / sum(exp_p)
-  
-  # choice based on softmax probabilities
-  choice <- sample(c(0, 1), 1, prob = p)
+  PE = opp_choice - estimated_value;
+  estimated_value = estimated_value + (alpha * PE);
+    
+  # softmax
+  p = exp(tau * estimated_value) / (exp(tau * estimated_value) + exp(tau * (1-estimated_value)));
+
+  # choice based on softmax probabilities - prob needs to be a vector as it is for both hands
+  choice <- sample(c(0, 1), 1, prob = c(1 - p, p))
   
    return(list(
     choice = choice,
-    estimated_value = estimated_value[1] # only return for the left hand
+    estimated_value = estimated_value
   ))
 }
 ```
@@ -111,9 +105,8 @@ for (t in 2:trials) {
   
   # RL agent choice and update estimated value based on previous feedback
   result <- rl_agent_f(
-    RL_choices[t - 1],
-    estimated_value_tracked[t - 1],
-    prev_feedback1,
+    opp_choice = RA_choices[t - 1], # opponents choice to drive the PE in the rl_agent_f
+    estimated_value = estimated_value_tracked[t - 1],
     alpha=alpha,
     tau = tau
   )
