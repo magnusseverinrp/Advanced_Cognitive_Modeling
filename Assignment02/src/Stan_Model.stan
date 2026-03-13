@@ -94,7 +94,7 @@ generated quantities {
     choice_prior_rep[1] = bernoulli_rng(0.5);
     
     for (t in 2:n){
-      PE_prior      = opp_choice[t-1] - EV_prior[t-1]; # using the opponents choice data (it is contained within itself, as it is not impacted by the RL agents chocie - simply biased with noise)
+      PE_prior      = opp_choice[t-1] - EV_prior[t-1]; // using the opponents choice data (it is contained within itself, as it is not impacted by the RL agents chocie - simply biased with noise)
       EV_prior[t]   = EV_prior[t-1] + (alpha_prior * PE_prior);
       p_prior       = exp(tau_prior * EV_prior[t]) / (exp(tau_prior * EV_prior[t]) + exp(tau_prior * (1 - EV_prior[t])));
       

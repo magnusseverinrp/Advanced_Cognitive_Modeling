@@ -77,7 +77,7 @@ rl_agent_f <- function(opp_choice, estimated_value, alpha =0.4, tau=1) {
 
 # FULL SIMULATION FUNCTION
 ```{r} 
-full_simulation <- function(alpha, tau) {
+full_simulation <- function(alpha, tau, trials =120) {
 
 # Create empty lists for choices and feedback
 RA_choices <- rep(NA, trials)
@@ -413,5 +413,127 @@ ppc_posterior_ggplot <- ggplot(ppc_df, aes(x = Replicated_Sum)) +
   theme_classic()
 
 ppc_posterior_ggplot
+```
+
+# PARAMETER RECOVERY
+```{r}
+recovery_grid <- tidyr::expand_grid(
+  n_trials = c(30, 60, 120, 240),
+  true_alpha = c(0.1, 0.5, 0.9),
+  true_tau = c(1, 5, 15)
+)
+
+recovery_file <- file.path(stan_results_dir, "04_ParameterRecovery.rds")
+
+
+if (regenerate_simulations || !file.exists(recovery_file)) {
+  
+  # 2. Define the isolated recovery pipeline
+  run_recovery <- function(n_trials, true_alpha, true_tau) {
+    # Generate synthetic empirical data
+    sim_data <- full_simulation(alpha = true_alpha, tau = true_tau, trials = n_trials)
+    
+    # Structure the data block for Stan
+    rec_data_list <- list(
+      players = 1,
+      n = n_trials,
+      choice = sim_data$Choice_RL[1:n_trials],
+      opp_choice = sim_data$Opponent_RA[1:n_trials]
+    )
+    
+    # Fit the generative model
+    fit <- mod_bernoulli$sample(
+      data = rec_data_list,
+      chains = 1,
+      iter_warmup = 1000,
+      iter_sampling = 2000,
+      refresh = 0,
+      show_messages = FALSE
+    )
+    
+    # Extract structural draws immediately to avoid temporary file fragility
+    draws_df <- fit$draws(c("alpha", "tau"), format = "df")
+    
+    tibble::tibble(
+      trials = n_trials,
+      true_alpha = true_alpha,
+      alpha_prob = draws_df$alpha,
+      true_tau = true_tau,
+      tau_prob = draws_df$tau,
+    )
+  }
+
+  # 3. Establish the parallel backend and execute mapping
+  future::plan(future::multisession, workers = 2)
+  
+  # recovery_draws <- furrr::future_pmap(
+  #   recovery_grid,
+  #   run_recovery,
+  #   .options = furrr::furrr_options(seed = TRUE, stdout = FALSE)
+  # ) |> 
+  #   dplyr::bind_rows()
+    
+  # Replace the parallel section with this temporarily
+  recovery_draws <- purrr::pmap(
+    recovery_grid,
+    run_recovery
+  ) |> 
+    dplyr::bind_rows()
+
+  future::plan(future::sequential)
+  
+  # Ensure directory exists before saving
+  if (!dir.exists(stan_results_dir)) dir.create(stan_results_dir, recursive = TRUE)
+  
+  saveRDS(recovery_draws, recovery_file)
+  
+} else {
+  recovery_draws <- readRDS(recovery_file)
+  cat("Loaded existing 2D recovery draws from:", recovery_file, "\n")
+}
+```
+
+```{r}
+# 4. Compress draws into rigorous posterior summaries
+recovery_summary <- recovery_draws |> 
+  dplyr::group_by(trials, true_alpha, true_tau) |> 
+  dplyr::summarize(
+    post_mean_alpha = mean(alpha_prob),
+    post_mean_tau = mean(tau_prob),
+    lower_95_alpha = quantile(alpha_prob, 0.025),
+    upper_95_alpha = quantile(alpha_prob, 0.975),
+    lower_95_tau = quantile(tau_prob, 0.025),
+    upper_95_tau = quantile(tau_prob, 0.975),
+    .groups = "drop"
+  ) |> 
+  dplyr::mutate(
+    facet_label = paste0("Generative Ground Truth: \u03b8 = ", true_alpha, true_tau)
+  )
+
+# 5. Visualize the geometric shrinkage across the parameter space
+
+p_recovery_2d <- ggplot(recovery_summary, aes(x = factor(trials), y = post_mean_alpha)) +
+  # Map the true value to the hline dynamically per facet
+  geom_hline(aes(yintercept = true_alpha), color = "black", linetype = "dashed", linewidth = 1) +
+  geom_pointrange(aes(ymin = lower_95_alpha, ymax = upper_95_alpha, color = factor(true_alpha)), linewidth = 1, size = 0.8) +
+  
+  facet_wrap(~ facet_label) +
+  # Adjust palette range so colors remain distinct
+  scale_color_viridis_d(option = "mako", begin = 0.2, end = 0.8) +
+  
+  ggtitle("Data Adequacy & Identifiability: Parameter Recovery") +
+  xlab("Experimental Design (Number of Trials, N)") +
+  ylab(expression("Posterior Estimate of " * alpha * " (Mean & 95% CrI)")) +
+  
+  coord_cartesian(ylim = c(0.35, 1.0)) + # Bound visually to the relevant domain
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    strip.background = element_rect(fill = "gray95", color = "NA"),
+    strip.text = element_text(face = "bold", size = 11),
+    panel.grid.major.y = element_line(color = "gray90", linetype = "dotted")
+  )
+
+print(p_recovery_2d)
 ```
 
