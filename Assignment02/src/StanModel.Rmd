@@ -494,7 +494,7 @@ if (regenerate_simulations || !file.exists(recovery_file)) {
 ```
 
 ```{r}
-# 4. Compress draws into rigorous posterior summaries
+# recovert summary
 recovery_summary <- recovery_draws |> 
   dplyr::group_by(trials, true_alpha, true_tau) |> 
   dplyr::summarize(
@@ -507,33 +507,62 @@ recovery_summary <- recovery_draws |>
     .groups = "drop"
   ) |> 
   dplyr::mutate(
-    facet_label = paste0("Generative Ground Truth: \u03b8 = ", true_alpha, true_tau)
+    facet_label_alpha = paste0("True α = ", true_alpha),  # ← add this
+    facet_label_tau   = paste0("True τ = ", true_tau)     # ← add this
   )
+```
 
-# 5. Visualize the geometric shrinkage across the parameter space
-
-p_recovery_2d <- ggplot(recovery_summary, aes(x = factor(trials), y = post_mean_alpha)) +
-  # Map the true value to the hline dynamically per facet
-  geom_hline(aes(yintercept = true_alpha), color = "black", linetype = "dashed", linewidth = 1) +
-  geom_pointrange(aes(ymin = lower_95_alpha, ymax = upper_95_alpha, color = factor(true_alpha)), linewidth = 1, size = 0.8) +
-  
-  facet_wrap(~ facet_label) +
-  # Adjust palette range so colors remain distinct
+```{r}
+# Alpha recovery - facet by trials, colour by true_tau
+p_alpha_facet <- ggplot(recovery_summary, 
+                        aes(x = true_alpha, y = post_mean_alpha, color = factor(true_tau))) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
+  geom_pointrange(aes(ymin = lower_95_alpha, ymax = upper_95_alpha),
+                  linewidth = 0.8, size = 0.6,
+                  position = position_dodge(width = 0.02)) +
+  facet_wrap(~ paste("N Trials =", trials)) +
   scale_color_viridis_d(option = "mako", begin = 0.2, end = 0.8) +
-  
-  ggtitle("Data Adequacy & Identifiability: Parameter Recovery") +
-  xlab("Experimental Design (Number of Trials, N)") +
-  ylab(expression("Posterior Estimate of " * alpha * " (Mean & 95% CrI)")) +
-  
-  coord_cartesian(ylim = c(0.35, 1.0)) + # Bound visually to the relevant domain
+  labs(
+    title = expression("Parameter Recovery: Learning Rate " * alpha),
+    subtitle = expression("Faceted by trial count, coloured by true " * tau),
+    x = expression("True " * alpha),
+    y = expression("Recovered " * alpha * " (Mean & 95% CrI)"),
+    color = expression("True " * tau)
+  ) +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
   theme_classic() +
   theme(
-    legend.position = "none",
-    strip.background = element_rect(fill = "gray95", color = "NA"),
+    strip.background = element_rect(fill = "gray95", color = NA),
     strip.text = element_text(face = "bold", size = 11),
-    panel.grid.major.y = element_line(color = "gray90", linetype = "dotted")
+    panel.grid.major = element_line(color = "gray90", linetype = "dotted")
   )
 
-print(p_recovery_2d)
+# Tau recovery - facet by trials, colour by true_alpha
+p_tau_facet <- ggplot(recovery_summary, 
+                      aes(x = true_tau, y = post_mean_tau, color = factor(true_alpha))) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
+  geom_pointrange(aes(ymin = lower_95_tau, ymax = upper_95_tau),
+                  linewidth = 0.8, size = 0.6,
+                  position = position_dodge(width = 0.3)) +
+  facet_wrap(~ paste("N Trials =", trials)) +
+  scale_color_viridis_d(option = "rocket", begin = 0.2, end = 0.8) +
+  labs(
+    title = expression("Parameter Recovery: Inverse Temperature " * tau),
+    subtitle = expression("Faceted by trial count, coloured by true " * alpha),
+    x = expression("True " * tau),
+    y = expression("Recovered " * tau * " (Mean & 95% CrI)"),
+    color = expression("True " * alpha)
+  ) +
+  coord_cartesian(xlim = c(0, 20), ylim = c(0, 20)) +
+  theme_classic() +
+  theme(
+    strip.background = element_rect(fill = "gray95", color = NA),
+    strip.text = element_text(face = "bold", size = 11),
+    panel.grid.major = element_line(color = "gray90", linetype = "dotted")
+  )
+
+print(p_alpha_facet)
+print(p_tau_facet)
 ```
+
 
