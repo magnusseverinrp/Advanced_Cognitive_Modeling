@@ -1,51 +1,53 @@
-//
-// This Stan program defines a simple model, with a
-// vector of values 'y' modeled as normally distributed
-// with mean 'mu' and standard deviation 'sigma'.
+// Stan model.
 //
 // Learn more about model development with Stan at:
 //
 //    http://mc-stan.org/users/interfaces/rstan.html
 //    https://github.com/stan-dev/rstan/wiki/RStan-Getting-Started
-//
 
-// The input data is a vector 'y' of length 'N'.
+
+// ========= Define the data that Stan will expect to receive from R. =========
 data {
-  int < lower = 1 > players; // No. of players, must be at least 1
-  int < lower = 1 > n; // No. of trials, must be at least 1
-  array[n] int choice; // Array "h" of choices (0 or 1) with length "n" for no. trials, 
-  array[n] int opp_choice; // Array "f" of feedback (0 or 1) with length "n" for no. trials
+  int < lower = 1 > players; // No. of players, must be at least 1. Defined in the R script.
+  int < lower = 1 > n; // No. of trials, must be at least 1. Defined in the R script.
+  array[n] int choice; // RL agent's actual choices per trial (0 = left, 1 = right). This is Choice_RL from the R script.
+  array[n] int opp_choice; // Opponent's choices per trial (0 = left, 1 = right). This is Opponent_RA from the R script.
 }
 
-// The parameters accepted by the model. Our model
-// accepts two parameters 'mu' and 'sigma'.
+
+// ========= Define parameters =========
+// The parameters accepted by our model are 'alpha' (the learning rate i.e. how fast the agent updates its beliefs) and 'tau' (inverse temperature i.e. how deterministically the agent exploits its best guess).
 parameters {
-  real alpha_logit; // Define alpha_logit unbounded real no.
-  real tau_logit; // Define tau_logit unbounded real no.
-  
-  // we use logit as we want stan to be able to sample for + to - inf!! 
-  // That is why we use logit/inv_logit to transform between bounded and unbounded values e.g. log odds
-}
-
-transformed parameters { // Define how to transform paramteres back into shape the model requires.
-  
-  // define how to get from alpha logit to alpha and define alpha limits of parameter
-  real <lower = 0, upper =1 > alpha = inv_logit(alpha_logit);
-  // define how to get from tau logit to tau and define tau limits of parameter
-  real < lower = 0, upper = 20 > tau = (inv_logit(tau_logit)*20); // * tau by 20 to get it bounded between 0-20
+  real alpha_logit; // Define alpha as logit because this will be unbounded (-∞ to +∞), which Stan can sample from better.
+  real tau_logit; // Define tau as logit because this will be unbounded (-∞ to +∞), which Stan can sample from better.
   
 }
 
-// The model to be estimated. We model the output
+
+// Define how to transform our unbounded parameters (log odds) into bounded, interpretable parameters.
+transformed parameters {
+  real <lower = 0, upper =1 > alpha = inv_logit(alpha_logit); // Define the use of inv_logit to transform unbounded alpha parameter (-∞ to +∞) to bounded. The boundary defined as 0 to 1.
+  real < lower = 0, upper = 20 > tau = (inv_logit(tau_logit)*20); // Define the use of inv_logit to transform unbounded tau parameter (-∞ to +∞) to bounded. The boundary is defined as 0 to 20, and since inv_logit will give 0 to 1, we multiply inv_logit by 20 to stretch the boundary to 0 to 20.
+  
+}
+
+
+// ========= Define model priors and likelihood =========
 model {
+  
   // Prior: Belief about alpha and tau before seeing the data
-    target += normal_lpdf(alpha_logit | 0, 1.5 ); // normal distribution of alpha logit
-    target += normal_lpdf(tau_logit | 0, 1.5); // normal distirbution of tau_logit
+  // Target represents the log probability density function of the model i.e. our log posterior, which is updated by the log prior and log likelihood. So 'target +=' adds the log-probability density to the overall model log-probability.
+    target += normal_lpdf(alpha_logit | 0, 1.5 ); // Normal distribution of alpha_logit around 0 with SD 1.5.
+    target += normal_lpdf(tau_logit | 0, 1.5); // Normal distribution of tau_logit around 0 with SD 1.5
       
-  // Likelihood: How the data depends on the parameters
-  real PE; // define PE
-  array[n] real EV;  // define Expected value as a real with bounds
-  real p; // choice probability
+  // Likelihood: How the data depends on the parameters i.e. how likely the observed choice probability p is given a value of alpha and tau.
+  real PE; // Define prediction error (PE = opp_choice - estimated_value). It stores only a single number because it will be overwritten every trial.
+  array[n] real EV;  // Define Expected value as a real with bounds ???? ❌  Define an array of n decimal numbers storing the expected value for every trial. We need the history of EVs because because each trial's EV is calculated from the previous trial's EV.???
+  real p; // Define choice probability p. It stores only a single number because it will be overwritten every trial.
+  
+  
+  // Her er jeg nået til :P
+  
   
   
   // !! We are modelling for the left hand (one hand) as they are implicitly linked, this makes it simple
