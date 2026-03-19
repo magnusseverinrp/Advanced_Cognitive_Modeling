@@ -425,7 +425,7 @@ recovery_file <- file.path("Stan_results/ParameterRecovery.rds")
 
 if (regenerate_simulations || !file.exists(recovery_file)) {
   
-  # 2. Define the isolated recovery pipeline
+  # Define the isolated recovery pipeline
   run_recovery <- function(n_trials, true_alpha, true_tau) {
     # Generate synthetic empirical data
     sim_data <- full_simulation(alpha = true_alpha, tau = true_tau, trials = n_trials)
@@ -448,7 +448,7 @@ if (regenerate_simulations || !file.exists(recovery_file)) {
       show_messages = FALSE
     )
     
-    # Extract structural draws immediately to avoid temporary file fragility
+    # Extract structural draws 
     draws_df <- fit$draws(c("alpha", "tau"), format = "df")
     
     tibble::tibble(
@@ -460,10 +460,9 @@ if (regenerate_simulations || !file.exists(recovery_file)) {
     )
   }
 
-  # 3. Establish the parallel backend and execute mapping
+  # Establish the parallel backend and execute mapping
   future::plan(future::multisession, workers = 2)
     
-  # Replace the parallel section with this temporarily
   recovery_draws <- purrr::pmap(
     recovery_grid,
     run_recovery
@@ -481,7 +480,7 @@ if (regenerate_simulations || !file.exists(recovery_file)) {
 ```
 
 ```{r}
-# recovert summary
+# recovery summary
 recovery_summary <- recovery_draws |> 
   dplyr::group_by(trials, true_alpha, true_tau) |> 
   dplyr::summarize(
