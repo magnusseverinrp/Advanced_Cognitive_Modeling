@@ -144,7 +144,7 @@ return(df_RA_RL)
 ```{r}
 # --- Generate Data Across Different Parameters ---
 # Define relative paths for saving/loading simulation data
-sim_data_file <- here("Simulation_01.csv") 
+sim_data_file <- here("Assignment02/data/Simulation_01.csv") 
 
 
 if (regenerate_simulations || !file.exists(sim_data_file)) {
@@ -221,7 +221,7 @@ str(data_for_stan) # Show the structure of the list
 stan_file_bernoulli <- here("Assignment02/src/Stan_Model.stan")
 # Define path for saving fitted model object
 stan_results_dir <- "Assignment02/src/Stan_results"
-model_file_bernoulli <- here(stan_results_dir, "04_SimpleBernoulli.rds")
+model_file_bernoulli <- here(stan_results_dir, "SimpleBernoulli.rds")
 
 # create folder if it's not there
 if (!dir.exists(stan_results_dir)) dir.create(stan_results_dir)
@@ -420,7 +420,7 @@ recovery_grid <- tidyr::expand_grid(
   true_tau = c(1, 5, 15)
 )
 
-recovery_file <- file.path(stan_results_dir, "04_ParameterRecovery.rds")
+recovery_file <- file.path("Stan_results/ParameterRecovery.rds")
 
 
 if (regenerate_simulations || !file.exists(recovery_file)) {
@@ -462,13 +462,6 @@ if (regenerate_simulations || !file.exists(recovery_file)) {
 
   # 3. Establish the parallel backend and execute mapping
   future::plan(future::multisession, workers = 2)
-  
-  # recovery_draws <- furrr::future_pmap(
-  #   recovery_grid,
-  #   run_recovery,
-  #   .options = furrr::furrr_options(seed = TRUE, stdout = FALSE)
-  # ) |> 
-  #   dplyr::bind_rows()
     
   # Replace the parallel section with this temporarily
   recovery_draws <- purrr::pmap(
@@ -478,9 +471,6 @@ if (regenerate_simulations || !file.exists(recovery_file)) {
     dplyr::bind_rows()
 
   future::plan(future::sequential)
-  
-  # Ensure directory exists before saving
-  if (!dir.exists(stan_results_dir)) dir.create(stan_results_dir, recursive = TRUE)
   
   saveRDS(recovery_draws, recovery_file)
   
@@ -577,7 +567,7 @@ remotes::install_github("hyunjimoon/SBC")
 ```{r}
 library(SBC)
 
-sbc_results_file <- file.path("Stan_results/5_sbc_results.rds")
+sbc_results_file <- file.path("Stan_results/sbc_results.rds")
 
 if (regenerate_simulations || !file.exists(sbc_results_file)) {
   
@@ -727,7 +717,7 @@ generate_psbc_data <- function(n_sims = 100) {
   )
 }
 
-psbc_results_file <- file.path("Stan_results/W5_psbc_results.rds")
+psbc_results_file <- file.path("Stan_results/psbc_results.rds")
 
 
 if (regenerate_simulations || !file.exists(psbc_results_file)) {
@@ -757,4 +747,3 @@ p_psbc_ecdf <- SBC::plot_ecdf(psbc_results, variables = c("alpha", "tau"))  +
 p_psbc_combined <- p_psbc_hist / p_psbc_ecdf
 p_psbc_combined
 ```
-
