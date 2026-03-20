@@ -415,6 +415,7 @@ ppc_posterior_ggplot
 # PARAMETER RECOVERY
 ```{r}
 recovery_grid <- tidyr::expand_grid(
+  sim_id = 1:100, # Number of simulated agents per condition
   n_trials = c(30, 60, 120, 240),
   true_alpha = c(0.1, 0.5, 0.9),
   true_tau = c(1, 5, 15)
@@ -426,7 +427,7 @@ recovery_file <- file.path("Stan_results/ParameterRecovery.rds")
 if (regenerate_simulations || !file.exists(recovery_file)) {
   
   # Define the isolated recovery pipeline
-  run_recovery <- function(n_trials, true_alpha, true_tau) {
+  run_recovery <- function(sim_id, n_trials, true_alpha, true_tau) {
     # Generate synthetic empirical data
     sim_data <- full_simulation(alpha = true_alpha, tau = true_tau, trials = n_trials)
     
@@ -441,27 +442,40 @@ if (regenerate_simulations || !file.exists(recovery_file)) {
     # Fit the generative model
     fit <- mod_bernoulli$sample(
       data = rec_data_list,
-      chains = 1,
-      iter_warmup = 1000,
-      iter_sampling = 2000,
-      refresh = 0,
+      chains = 4,
+      parallel_chains = 4, # Run chains in parallel
+      iter_warmup = 1000,            # Number of warmup iterations per chain (discarded)
+      iter_sampling = 2000,          # Number of sampling iterations per chain (kept)
+      refresh = 0,                   # How often to print progress updates. 0 means never since the model is so fast
+      max_treedepth = 10,            # Controls complexity of MCMC steps (adjust if needed)
+      adapt_delta = 0.8,              # Target acceptance rate (adjust if divergences occur)
       show_messages = FALSE
     )
     
     # Extract structural draws 
     draws_df <- fit$draws(c("alpha", "tau"), format = "df")
     
+    # Extract Rhat for convergence diagnostics
+    conv_df <- fit$summary(c("alpha", "tau")) |>
+      dplyr::select(variable, rhat)
+    
+    rhat_alpha <- conv_df$rhat[conv_df$variable == "alpha"]
+    rhat_tau <- conv_df$rhat[conv_df$variable == "tau"]
+    
     tibble::tibble(
+      sim_id = sim_id,
       trials = n_trials,
       true_alpha = true_alpha,
       alpha_prob = draws_df$alpha,
       true_tau = true_tau,
       tau_prob = draws_df$tau,
+      rhat_alpha = rhat_alpha,
+      rhat_tau = rhat_tau
     )
   }
 
   # Establish the parallel backend and execute mapping
-  future::plan(future::multisession, workers = 2)
+  future::plan(future::multisession, workers = parallel::detectCores() - 1)
     
   recovery_draws <- purrr::pmap(
     recovery_grid,
@@ -470,7 +484,6 @@ if (regenerate_simulations || !file.exists(recovery_file)) {
     dplyr::bind_rows()
 
   future::plan(future::sequential)
-  
   saveRDS(recovery_draws, recovery_file)
   
 } else {
@@ -482,7 +495,7 @@ if (regenerate_simulations || !file.exists(recovery_file)) {
 ```{r}
 # recovery summary
 recovery_summary <- recovery_draws |> 
-  dplyr::group_by(trials, true_alpha, true_tau) |> 
+  dplyr::group_by(sim_id, trials, true_alpha, true_tau) |> 
   dplyr::summarize(
     post_mean_alpha = mean(alpha_prob),
     post_mean_tau = mean(tau_prob),
@@ -490,20 +503,60 @@ recovery_summary <- recovery_draws |>
     upper_95_alpha = quantile(alpha_prob, 0.975),
     lower_95_tau = quantile(tau_prob, 0.025),
     upper_95_tau = quantile(tau_prob, 0.975),
+    rhat_alpha = dplyr::first(rhat_alpha),
+    rhat_tau = dplyr::first(rhat_tau),
     .groups = "drop"
   ) |> 
   dplyr::mutate(
-    facet_label_alpha = paste0("True α = ", true_alpha),  # ← add this
-    facet_label_tau   = paste0("True τ = ", true_tau)     # ← add this
+    facet_label_alpha = paste0("True α = ", true_alpha),  
+    facet_label_tau   = paste0("True τ = ", true_tau) ,
+    converged = rhat_alpha < 1.01 & rhat_tau < 1.01
   )
+
+
+
+# Report Convergence failures
+n_nonconverged <- sum(!recovery_summary$converged)
+cat(sprintf("Non-converged fits (Rhat >= 1.01): %d / %d\n",
+            n_nonconverged, nrow(recovery_summary)))
+
+# Filter to converged fits only before plotting/correlation
+recovery_converged <- dplyr::filter(recovery_summary, converged)
+
 ```
 
 ```{r}
+# Numerical recovery: correlation between true and recovered, by trial count
+recovery_cor <- recovery_converged |>
+  dplyr::group_by(trials) |>
+  dplyr::summarize(
+    cor_alpha = cor(true_alpha, post_mean_alpha),
+    cor_tau   = cor(true_tau,   post_mean_tau),
+    .groups   = "drop"
+  )
+
+print(recovery_cor)
+```
+
+
+```{r}
 # Alpha recovery - facet by trials, colour by true_tau
-p_alpha_facet <- ggplot(recovery_summary, 
-                        aes(x = true_alpha, y = post_mean_alpha, color = factor(true_tau))) +
+
+# average over 100 sims
+plot_summary_alpha <- recovery_converged |>
+  dplyr::group_by(trials, true_alpha, true_tau) |>
+  dplyr::summarize(
+    mean_recovered  = mean(post_mean_alpha),
+    lower_95        = mean(lower_95_alpha),
+    upper_95        = mean(upper_95_alpha),
+    .groups = "drop"
+  )
+
+
+p_alpha_facet <- ggplot(plot_summary_alpha, 
+                        aes(x = true_alpha, y = mean_recovered, color = factor(true_tau))) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
-  geom_pointrange(aes(ymin = lower_95_alpha, ymax = upper_95_alpha),
+  geom_pointrange(aes(ymin = lower_95, ymax = upper_95),
                   linewidth = 0.8, size = 0.6,
                   position = position_dodge(width = 0.02)) +
   facet_wrap(~ paste("N Trials =", trials)) +
@@ -523,11 +576,24 @@ p_alpha_facet <- ggplot(recovery_summary,
     panel.grid.major = element_line(color = "gray90", linetype = "dotted")
   )
 
+
 # Tau recovery - facet by trials, colour by true_alpha
-p_tau_facet <- ggplot(recovery_summary, 
-                      aes(x = true_tau, y = post_mean_tau, color = factor(true_alpha))) +
+
+# average over 100 sims
+plot_summary_tau <- recovery_converged |>
+  dplyr::group_by(trials, true_alpha, true_tau) |>
+  dplyr::summarize(
+    mean_recovered = mean(post_mean_tau),
+    lower_95       = mean(lower_95_tau),
+    upper_95       = mean(upper_95_tau),
+    .groups = "drop"
+  )
+
+
+p_tau_facet <- ggplot(plot_summary_tau, 
+                      aes(x = true_tau, y = mean_recovered, color = factor(true_alpha))) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
-  geom_pointrange(aes(ymin = lower_95_tau, ymax = upper_95_tau),
+  geom_pointrange(aes(ymin = lower_95, ymax = upper_95),
                   linewidth = 0.8, size = 0.6,
                   position = position_dodge(width = 0.3)) +
   facet_wrap(~ paste("N Trials =", trials)) +
