@@ -1,0 +1,30 @@
+---
+title: "DataExploration"
+output: html_document
+---
+
+```{r}
+# load packages
+pacman::p_load(
+  tidyverse,    # Data manipulation and plotting
+  here,         # Robust file paths
+  cmdstanr,     # Stan interface
+  rstan,
+  posterior,    # Posterior analysis
+  bayesplot,    # Plotting MCMC
+  furrr,        # Parallel processing
+  future,        # Future backend
+  patchwork
+)
+```
+
+```{r}
+# load data
+
+```
+
+```{r}
+# explore data
+
+```
+

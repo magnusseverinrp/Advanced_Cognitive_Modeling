@@ -37,10 +37,31 @@ regenerate_simulations <- TRUE # Or TRUE
 
 ```
 
-# Define agents
+# Define agents.
+The two agents are: WBA and SBA
+
+The variables:
+ID : Participant ID
+1_rating: The first rating the participant gives (0-8)
+g_rating: The group rating feedback given after the first rating (0-8)
+2_rating: The second rating the participant gives (0-8) <- this is what we want to predict
+Feedback: How far is the g_rating from the 1_rating (-3 to 3)
+Change: How much did the 2_rating change from the 1_rating (-7 to 7) but probably in the middle
+Condition: Pre or Peri depending on whether the data was acquired before or during the pandemic
+
+We can delete any rows with NAs!!
+
+
 ```{r}
+# AGENT SBA
 
 ```
+
+```{r}
+# AGENT WBA
+
+```
+
 
 # Simulate the task
 ```{r}
