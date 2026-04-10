@@ -1,0 +1,6 @@
+---
+title: "Script"
+output: html_document
+---
+
+git reset --hard origin/<branch-name>
