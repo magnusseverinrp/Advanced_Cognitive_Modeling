@@ -3,4 +3,52 @@ title: "Script"
 output: html_document
 ---
 
-git reset --hard origin/<branch-name>
+# Setup
+```{r}
+pacman::p_load(
+  tidyverse,    # Data manipulation and plotting
+  here,         # Robust file paths
+  cmdstanr,     # Stan interface
+  rstan,
+  posterior,    # Posterior analysis
+  bayesplot,    # Plotting MCMC
+  furrr,        # Parallel processing
+  future,        # Future backend
+  patchwork
+)
+```
+
+```{r}
+# Parallel Setup: Leave 2 cores free for system stability
+n_cores <- parallel::detectCores() - 2
+plan(multisession, workers = n_cores)
+```
+
+```{r}
+# Optional: Set a default ggplot theme
+theme_set(theme_classic())
+```
+
+# Simulating Data
+```{r}
+# Flag to control whether to regenerate simulation/fitting results for the knitted files
+# Set to TRUE to rerun everything (takes time!), FALSE to load saved results.
+regenerate_simulations <- TRUE # Or TRUE
+
+```
+
+# Define agents
+```{r}
+
+```
+
+# Simulate the task
+```{r}
+
+```
+
+
+```{r}
+
+```
+
