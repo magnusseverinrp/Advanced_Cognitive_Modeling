@@ -33,7 +33,7 @@ theme_set(theme_classic())
 ```{r}
 # Flag to control whether to regenerate simulation/fitting results for the knitted files
 # Set to TRUE to rerun everything (takes time!), FALSE to load saved results.
-regenerate_simulations <- TRUE # Or TRUE
+regenerate_simulations <- TRUE 
 
 ```
 
@@ -75,25 +75,18 @@ set.seed(42)
 ```
 
 ```{r}
- # Constants
-
 # Rating scale boundaries
 RATING_MIN <- 1
 RATING_MAX <- 8
 N_PSEUDO   <- 7   # pseudo sample size per source (= RATING_MAX - RATING_MIN)
  
 # Jeffreys prior
-PRIOR_ALPHA <- 0.5
-PRIOR_BETA  <- 0.5
+alpha_prior <- 0.5
+beta_prior <- 0.5
  
-# Convert a 1–8 rating to a pseudo-count (0–7)
-rating_to_count <- function(rating) as.integer(rating - 1)
- 
+
 # Convert a Beta belief (0–1) back to a 1–8 rating (rounded, clamped)
-belief_to_rating <- function(theta) {
-  raw <- round(theta * N_PSEUDO) + 1
-  pmax(RATING_MIN, pmin(RATING_MAX, as.integer(raw)))
-}
+
 ```
 
 ```{r}
@@ -111,8 +104,8 @@ belief_to_rating <- function(theta) {
 
 compute_posterior <- function(rating_1, rating_g,
                               w_self = 1, w_group = 1) {
-  k_self  <- rating_to_count(rating_1)
-  k_group <- rating_to_count(rating_g)
+  k_self  <- rating_1 - 1 #converting ratings (1–8) to pseudo-counts (0–7)
+  k_group <- rating_g - 1 
  
   alpha_post <- alpha_prior + w_self * k_self + w_group * k_group
   beta_post  <- beta_prior  + w_self * (N_PSEUDO - k_self) +
@@ -137,11 +130,6 @@ Three agent functions
 # --- Agent B: Weighted Bayesian Agent (WBA) -----------------------------------
 # Allows different weights for own vs. group evidence.
 # w_self and w_group are both free parameters (>0).
-#
-# WARNING (from Chapter 10): the raw parameterisation is NOT identifiable —
-# only the RATIO w_self/w_group matters. We keep raw weights here for
-# simulation (they are interpretable), but the STAN model must reparameterise.
-# See step 2 for the Stan solution.
  
 wba_agent <- function(rating_1, rating_g, w_self, w_group) {
   
@@ -152,7 +140,9 @@ wba_agent <- function(rating_1, rating_g, w_self, w_group) {
   theta <- rbeta(1, post$alpha, post$beta)
   
   #convert back to a rating
-  belief_to_rating(theta) # Convert a Beta belief (0–1) back to a 1–8 rating (rounded, clamped)
+  rating_2 <- round(theta * N_PSEUDO) + 1
+  
+  return(list(rating_1 = rating_1, rating_2 = rating_2, w_self = w_self, w_group = w_group))
 }
 ```
 
@@ -169,8 +159,6 @@ wba_agent <- function(rating_1, rating_g, w_self, w_group) {
 #   w < 0.5  → trusts group more  (over-conformist / conformist)
  
 pba_agent <- function(rating_1, rating_g, w) {
-  # ensure weight is between 0 and 1
-  stopifnot(w > 0, w < 1)
   
   # convert sample to count and compute posterior with proportional weights
   post  <- compute_posterior(rating_1, rating_g, w_self = w, w_group = 1 - w)
@@ -179,48 +167,47 @@ pba_agent <- function(rating_1, rating_g, w) {
   theta <- rbeta(1, post$alpha, post$beta)
   
   # convert back to a rating
-  belief_to_rating(theta)
+  rating_2 <- round(theta * N_PSEUDO) + 1
+  
+  return(list(rating_1 = rating_1, rating_2 = rating_2, w = w))
 }
 ```
 
-# Simulate the task
+# Simulate the experiment 
 ```{r}
-# Generates a tibble in the same format as the real datasets:
-#   ID, FaceID, FirstRating, GroupRating, SecondRating
-#
-# Arguments:
-#   agent_fn   – one of wba_agent / pba_agent (as a function)
-#   agent_args – named list of extra args for the agent (e.g. list(w=0.7))
-#   n_agents   – number of simulated participants
-#   n_faces    – number of unique faces per participant
-#   n_reps     – repetitions per (FirstRating, GroupRating) combination
-#                (set n_faces=NULL to use full factorial design instead)
-
 simulate_experiment <- function(agent_fn,
                                 agent_args = list(),
-                                n_agents   = 10,
-                                n_faces    = 36,
-                                n_reps     = 5) {
- 
-
-  # sample between 1-8 and generate a full factorial design of all combinations of first and group ratings
+                                n_faces    = 5) {
   
+  offsets <- c(-3, -2, 2, 3)
+  results <- vector("list", n_faces)
+  idx <- 1
   
-  # apply agents to the data
+  for (face_id in 1:n_faces) {
+      
+      # Sample ratings
+      rating_1 <- sample(0:8, 1)
+      valid_offsets <- offsets[rating_1 + offsets >= 0 & rating_1 + offsets <= 8]
+      feedback <- sample(valid_offsets, 1)
+      rating_g <- rating_1 + feedback
+      
+      # Call agent
+      result <- do.call(agent_fn, c(list(rating_1 = rating_1, rating_g = rating_g), agent_args))
+      
+      results[[idx]] <- tibble(
+        FaceID       = face_id,
+        FirstRating  = rating_1,
+        GroupRating  = rating_g,
+        SecondRating = result$rating_2,
+        Feedback     = feedback,
+        Change       = result$rating_2 - rating_1
+      ) |> bind_cols(as_tibble(agent_args))
+      
+      idx <- idx + 1
+  } 
   
-  
-  # add ID and FaceID columns
-  
-  
-  # return the simulated dataset
-
+  bind_rows(results)
 }
-
-
-```
-
-```{r}
-
 ```
 
 3. Design 3–5 distinguishing scenarios
@@ -231,3 +218,27 @@ Strong self-trust (WBA with high w_self)
 Strong conformity (WBA with high w_group)
 Ignoring social info completely
 Ignoring own prior completely
+#WBA
+###Equal dist (like SBA?)
+```{r}
+sim_df_wba_equal <- simulate_experiment(wba_agent, agent_args = list(w_self = 1, w_group = 1), n_faces = 20)
+```
+
+#WBA
+###Low self-weight and high group (conformist)
+```{r}
+sim_df_wba_conformist <- simulate_experiment(wba_agent, agent_args = list(w_self = 0.2, w_group = 1.8), n_faces = 10)
+
+```
+
+#PBA
+###High self_weight and low group (self-centered)
+```{r}
+sim_df_pba_self <- simulate_experiment(pba_agent, agent_args = list(w = 0.9), n_faces = 10)
+
+```
+
+```{r}
+
+```
+
