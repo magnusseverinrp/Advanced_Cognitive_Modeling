@@ -3,13 +3,11 @@
 // Jeffreys prior pseudo-counts (0.5) consistent with SBA.
 data {
   int<lower=1> N;
-  array[N] int<lower=0, upper=1> choice;
+  array[N] int<lower=0, upper=8> rating_2;
   array[N] int<lower=0, upper=8> rating_1;
   array[N] int<lower=0, upper=8> rating_g;
   array[N] int<lower=0> total_1;
   array[N] int<lower=0> total_g;
-  array[N] int<lower=-3, upper=3> feedback;
-  array[N] int<lower=-7, upper=7> change;
 }
 
 parameters {

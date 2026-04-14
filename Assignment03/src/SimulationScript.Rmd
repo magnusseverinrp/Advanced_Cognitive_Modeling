@@ -51,26 +51,183 @@ Condition: Pre or Peri depending on whether the data was acquired before or duri
 
 We can delete any rows with NAs!!
 
+Social Conformity Experiment
 
+ Goal: simulate agents that combine their own rating (FirstRating) with
+       a group rating (GroupRating) to produce a second rating (SecondRating).
+
+ Scale: ratings are integers 1–8 (1 = not trustworthy, 8 = very trustworthy)
+
+ Key adaptation from the chapter's marble task:
+   Marble task  → binary choice,   counts k out of n
+   This task    → ordinal rating,  integers 1–8
+   We convert ratings to pseudo-counts:
+     k = rating - 1   (so rating 1 → 0 "blue", rating 8 → 7 "blue")
+     n = 7            (total pseudo-marbles per source)
+   This puts both sources on the same 0–7 count scale.
+   Belief (theta) lives on [0, 1] and maps back:
+     SecondRating = round(theta * 7) + 1
+     
+     
 ```{r}
-# AGENT SBA
-
-
+library(tidyverse)
+set.seed(42)
 ```
 
 ```{r}
-# AGENT WBA
+ # Constants
 
+# Rating scale boundaries
+RATING_MIN <- 1
+RATING_MAX <- 8
+N_PSEUDO   <- 7   # pseudo sample size per source (= RATING_MAX - RATING_MIN)
+ 
+# Jeffreys prior
+PRIOR_ALPHA <- 0.5
+PRIOR_BETA  <- 0.5
+ 
+# Convert a 1–8 rating to a pseudo-count (0–7)
+rating_to_count <- function(rating) as.integer(rating - 1)
+ 
+# Convert a Beta belief (0–1) back to a 1–8 rating (rounded, clamped)
+belief_to_rating <- function(theta) {
+  raw <- round(theta * N_PSEUDO) + 1
+  pmax(RATING_MIN, pmin(RATING_MAX, as.integer(raw)))
+}
 ```
 
+```{r}
+# SECTION 2: Core belief-update function (shared by all agents)
+#
+# Implements Bayesian updating on a Beta distribution:
+#   posterior = Beta(alpha_prior + w_self*k_self + w_group*k_group,
+#                   beta_prior  + w_self*(n-k_self) + w_group*(n-k_group))
+#
+# Arguments:
+#   rating_1  – participant's own rating (integer 1–8)
+#   rating_g  – group's rating (integer 1–8)
+#   w_self        – weight on own evidence  (WBA/PBA: free)
+#   w_group       – weight on group evidence (WBA/PBA: free)
+
+compute_posterior <- function(rating_1, rating_g,
+                              w_self = 1, w_group = 1) {
+  k_self  <- rating_to_count(rating_1)
+  k_group <- rating_to_count(rating_g)
+ 
+  alpha_post <- alpha_prior + w_self * k_self + w_group * k_group
+  beta_post  <- beta_prior  + w_self * (N_PSEUDO - k_self) +
+                               w_group * (N_PSEUDO - k_group)
+ 
+  list(
+    alpha = alpha_post,
+    beta  = beta_post,
+    expected_rate  = alpha_post / (alpha_post + beta_post)
+  )
+}
+```
+
+Three agent functions
+
+ Each agent takes (first_rating, group_rating) and returns a SecondRating.
+ All use probability matching:
+   1. Sample theta ~ Beta(alpha_post, beta_post)   [belief about trustworthiness]
+   2. SecondRating = round(theta * 7) + 1          [express as a 1–8 rating]
+
+```{r}
+# --- Agent B: Weighted Bayesian Agent (WBA) -----------------------------------
+# Allows different weights for own vs. group evidence.
+# w_self and w_group are both free parameters (>0).
+#
+# WARNING (from Chapter 10): the raw parameterisation is NOT identifiable —
+# only the RATIO w_self/w_group matters. We keep raw weights here for
+# simulation (they are interpretable), but the STAN model must reparameterise.
+# See step 2 for the Stan solution.
+ 
+wba_agent <- function(rating_1, rating_g, w_self, w_group) {
+  
+  # convert sample to count and compute posterior
+  post <- compute_posterior(rating_1, rating_g, w_self, w_group)
+  
+  # sample from the posterior belief 
+  theta <- rbeta(1, post$alpha, post$beta)
+  
+  #convert back to a rating
+  belief_to_rating(theta) # Convert a Beta belief (0–1) back to a 1–8 rating (rounded, clamped)
+}
+```
+
+```{r}
+# --- Agent C: Proportional Bayesian Agent (PBA) ------------------------------
+# Reparameterises WBA to a single identifiable weight w ∈ (0, 1):
+#   w     = proportion of total weight given to own evidence
+#   1 - w = proportion given to group evidence
+#
+# This fixes the identifiability problem:
+#   w = 0.5  → equal weights (identical to SBA in belief direction,
+#               but overall precision differs because total weight = 1, not 2)
+#   w > 0.5  → trusts self more   (under-conformist)
+#   w < 0.5  → trusts group more  (over-conformist / conformist)
+ 
+pba_agent <- function(rating_1, rating_g, w) {
+  # ensure weight is between 0 and 1
+  stopifnot(w > 0, w < 1)
+  
+  # convert sample to count and compute posterior with proportional weights
+  post  <- compute_posterior(rating_1, rating_g, w_self = w, w_group = 1 - w)
+  
+  # sample from the posterior belief
+  theta <- rbeta(1, post$alpha, post$beta)
+  
+  # convert back to a rating
+  belief_to_rating(theta)
+}
+```
 
 # Simulate the task
 ```{r}
+# Generates a tibble in the same format as the real datasets:
+#   ID, FaceID, FirstRating, GroupRating, SecondRating
+#
+# Arguments:
+#   agent_fn   – one of wba_agent / pba_agent (as a function)
+#   agent_args – named list of extra args for the agent (e.g. list(w=0.7))
+#   n_agents   – number of simulated participants
+#   n_faces    – number of unique faces per participant
+#   n_reps     – repetitions per (FirstRating, GroupRating) combination
+#                (set n_faces=NULL to use full factorial design instead)
+
+simulate_experiment <- function(agent_fn,
+                                agent_args = list(),
+                                n_agents   = 10,
+                                n_faces    = 36,
+                                n_reps     = 5) {
+ 
+
+  # sample between 1-8 and generate a full factorial design of all combinations of first and group ratings
+  
+  
+  # apply agents to the data
+  
+  
+  # add ID and FaceID columns
+  
+  
+  # return the simulated dataset
+
+}
+
 
 ```
-
 
 ```{r}
 
 ```
 
+3. Design 3–5 distinguishing scenarios
+Pick parameter combinations that make SBA and WBA/PBA behave differently. E.g.:
+
+Equal weights (SBA = WBA)
+Strong self-trust (WBA with high w_self)
+Strong conformity (WBA with high w_group)
+Ignoring social info completely
+Ignoring own prior completely

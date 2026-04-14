@@ -3,13 +3,9 @@
 // p = 0.5 approximates balanced weighting; p -> 1 ignores social; p -> 0 ignores direct.
 data {
   int<lower=1> N;
-  array[N] int<lower=0, upper=1> choice;
+  array[N] int<lower=0, upper=7> rating_2;
   array[N] int<lower=0, upper=8> rating_1;
   array[N] int<lower=0, upper=8> rating_g;
-  array[N] int<lower=0> total_1;
-  array[N] int<lower=0> total_g;
-  array[N] int<lower=-3, upper=3> feedback;
-  array[N] int<lower=-7, upper=7> change;
 }
 
 parameters {
@@ -17,8 +13,7 @@ parameters {
 }
 
 model {
-  // Beta(2, 2): weakly bell-shaped, symmetric about 0.5
-  target += beta_lpdf(p | 2, 2);
+  vector[N]
 
   // Vectorized likelihood
   vector[N] alpha_post = 0.5 + p * to_vector(rating_1) + (1.0 - p) * to_vector(rating_g);
@@ -26,6 +21,7 @@ model {
                              + (1.0 - p) * (to_vector(total_g) - to_vector(rating_g));
                              
   target += beta_binomial_lpmf(choice | 1, alpha_post, beta_post);
+  k ~ beta_binomial(N_PSEUDO, alpha_post, beta_post);
 }
 
 generated quantities {
