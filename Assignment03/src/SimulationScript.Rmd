@@ -221,7 +221,29 @@ Strong self-trust (WBA with high w_self)
 Strong conformity (WBA with high w_group)
 Ignoring social info completely
 Ignoring own prior completely
-#WBA
+
+Scenarios for WBA and PBA:
+SCENARIO 01: (works only for wba - strong conformity)
+kappa = 10.5
+rho = 0.0476
+wd = 0.5
+ws = 10
+
+SCENARIO 02: (works for both models - balanced)
+kappa = 1
+rho = 0.5
+wd = 0.5
+ws= 0.5
+ 
+SCENARIO 03: (works for both models - self focused)
+kappa = 1
+rho = 0.7
+wd = 0.7
+ws = 0.3
+
+
+
+
 ###Equal dist (like SBA?)
 ```{r}
 sim_df_wba_equal <- simulate_experiment(wba_agent, agent_args = list(rho = 0.5, kappa = 2.0), n_faces = 20)
