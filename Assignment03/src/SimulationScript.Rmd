@@ -131,7 +131,10 @@ Three agent functions
 # Allows different weights for own vs. group evidence.
 # w_self and w_group are both free parameters (>0).
  
-wba_agent <- function(rating_1, rating_g, w_self, w_group) {
+wba_agent <- function(rating_1, rating_g, rho, kappa) {
+  
+  w_self <- rho * kappa 
+  w_group <- (1 - rho) * kappa
   
   # convert sample to count and compute posterior
   post <- compute_posterior(rating_1, rating_g, w_self, w_group)
@@ -221,20 +224,20 @@ Ignoring own prior completely
 #WBA
 ###Equal dist (like SBA?)
 ```{r}
-sim_df_wba_equal <- simulate_experiment(wba_agent, agent_args = list(w_self = 1, w_group = 1), n_faces = 20)
+sim_df_wba_equal <- simulate_experiment(wba_agent, agent_args = list(rho = 0.5, kappa = 2.0), n_faces = 20)
 ```
 
 #WBA
-###Low self-weight and high group (conformist)
+###Low self-weight and high group (socially-influenced)
 ```{r}
-sim_df_wba_conformist <- simulate_experiment(wba_agent, agent_args = list(w_self = 0.2, w_group = 1.8), n_faces = 10)
+sim_df_wba_social <- simulate_experiment(wba_agent, agent_args = list(rho = 0.2, kappa = 2.5), n_faces = 10)
 
 ```
 
 #PBA
-###High self_weight and low group (self-centered)
+###High self_weight and low group (self-focused)
 ```{r}
-sim_df_pba_self <- simulate_experiment(pba_agent, agent_args = list(w = 0.9), n_faces = 10)
+sim_df_pba_self <- simulate_experiment(pba_agent, agent_args = list(w = 0.9), n_faces = 20)
 
 ```
 
