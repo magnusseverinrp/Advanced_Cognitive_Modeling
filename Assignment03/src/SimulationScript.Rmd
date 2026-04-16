@@ -281,3 +281,23 @@ sim_df_pba_balanced <- simulate_experiment(pba_agent, agent_args = list(w = 0.5)
 sim_df_pba_self <- simulate_experiment(pba_agent, agent_args = list(w = 0.9), n_faces = 20)
 
 ```
+
+
+```{r}
+# combine and label your scenarios
+sim_pba_all <- bind_rows(
+  simulate_experiment(pba_agent, list(w = 0.1), n_faces = 200) |> mutate(scenario = "Conformist (w=0.1)"),
+  simulate_experiment(pba_agent, list(w = 0.5), n_faces = 200) |> mutate(scenario = "Balanced (w=0.5)"),
+  simulate_experiment(pba_agent, list(w = 0.9), n_faces = 200) |> mutate(scenario = "Self-focused (w=0.9)")
+)
+
+# Then plot
+ggplot(sim_pba_all, aes(x = Feedback, y = Change, color = scenario)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~scenario) +
+  labs(title = "PBA: Change as a function of Group Feedback",
+       x = "Feedback (GroupRating - FirstRating)",
+       y = "Change (SecondRating - FirstRating)")
+```
+
