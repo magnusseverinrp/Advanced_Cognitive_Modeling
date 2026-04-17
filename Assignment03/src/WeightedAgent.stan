@@ -3,9 +3,9 @@
 // kappa > 0: total evidence scaling (w_d + w_s).
 data {
   int<lower=1> N;
-  array[N] int<lower=0, upper=8> rating_2;
-  array[N] int<lower=0, upper=8> rating_1;
-  array[N] int<lower=0, upper=8> rating_g;
+  array[N] int<lower=0, upper=8> SecondRating;
+  array[N] int<lower=0, upper=8> FirstRating;
+  array[N] int<lower=0, upper=8> GroupRating;
   array[N] int<lower=0> total_1;
   array[N] int<lower=0> total_g;
 }
@@ -27,12 +27,12 @@ model {
   target += lognormal_lpdf(kappa | log(2), 0.5);
 
   // Vectorized likelihood
-  vector[N] alpha_post = 0.5 + weight_direct * to_vector(rating_1)
-                             + weight_social * to_vector(rating_g);
-  vector[N] beta_post  = 0.5 + weight_direct * (to_vector(total_1) - to_vector(rating_1))
-                             + weight_social * (to_vector(total_g) - to_vector(rating_g));
+  vector[N] alpha_post = 0.5 + weight_direct * to_vector(FirstRating)
+                             + weight_social * to_vector(GroupRating);
+  vector[N] beta_post  = 0.5 + weight_direct * (to_vector(total_1) - to_vector(FirstRating))
+                             + weight_social * (to_vector(total_g) - to_vector(GroupRating));
                              
-  target += beta_binomial_lpmf(rating_2 | 1, alpha_post, beta_post);
+  target += beta_binomial_lpmf(SecondRating | 1, alpha_post, beta_post);
 }
 
 generated quantities {
@@ -47,16 +47,16 @@ generated quantities {
   real ws_prior    = (1.0 - rho_prior) * kappa_prior;
 
   for (i in 1:N) {
-    real alpha_post = 0.5 + weight_direct * rating_1[i] + weight_social * rating_g[i];
-    real beta_post  = 0.5 + weight_direct * (total_1[i] - rating_1[i]) 
-                         + weight_social * (total_g[i] - rating_g[i]);
+    real alpha_post = 0.5 + weight_direct * FirstRating[i] + weight_social * GroupRating[i];
+    real beta_post  = 0.5 + weight_direct * (total_1[i] - FirstRating[i]) 
+                         + weight_social * (total_g[i] - GroupRating[i]);
 
-    log_lik[i]        = beta_binomial_lpmf(rating_2[i] | 1, alpha_post, beta_post);
+    log_lik[i]        = beta_binomial_lpmf(SecondRating[i] | 1, alpha_post, beta_post);
     posterior_pred[i] = beta_binomial_rng(1, alpha_post, beta_post);
 
-    real ap = 0.5 + wd_prior * rating_1[i] + ws_prior * rating_g[i];
-    real bp = 0.5 + wd_prior * (total_1[i] - rating_1[i]) 
-                  + ws_prior * (total_g[i] - rating_g[i]);
+    real ap = 0.5 + wd_prior * FirstRating[i] + ws_prior * GroupRating[i];
+    real bp = 0.5 + wd_prior * (total_1[i] - FirstRating[i]) 
+                  + ws_prior * (total_g[i] - GroupRating[i]);
     prior_pred[i] = beta_binomial_rng(1, ap, bp);
   }
 }
