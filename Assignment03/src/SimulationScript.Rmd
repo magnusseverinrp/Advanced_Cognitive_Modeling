@@ -305,7 +305,7 @@ ggplot(sim_pba_all, aes(x = Feedback, y = Change, color = scenario)) +
 ```
 ### Model Fitting 
 ```{r}
-mod_pba       <- cmdstan_model("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/ProbAgent.stan")
+mod_pba <- cmdstan_model("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/ProbAgent.stan")
 
 
 sampler_args <- list(
@@ -327,7 +327,7 @@ sampler_args <- list(
   refresh = 0
 )
 ```
-
+##### Simulated data prep 
 ```{r}
 stan_data_pba <- list(
   balanced = as.list(sim_df_pba_balanced),
@@ -341,6 +341,9 @@ stan_data_wba <- list(
   social   = as.list(sim_df_wba_social)
 )
 
+stan_data_exp <- list(
+  
+)
 ```
 
 ```{r}
@@ -353,6 +356,7 @@ stan_data_wba$self$N     <- as.integer(stan_data_wba$self$N[[1]])
 stan_data_wba$social$N   <- as.integer(stan_data_wba$social$N[[1]])
 ```
 
+#### PBA Sim Model Fitting
 ```{r}
 fit_pba_paths <- here::here(
   "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
@@ -380,6 +384,8 @@ if (regenerate_simulations || !all(file.exists(fit_pba_paths))) {
 ```{r}
 readRDS("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels/fit_pba_self.rds")
 ```
+
+#### WBA Sim Model Fitting 
 ```{r}
 fit_wba_paths <- here::here(
   "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
@@ -403,7 +409,115 @@ if (regenerate_simulations || !all(file.exists(fit_wba_paths))) {
   fit_wba <- map(fit_wba_paths, readRDS)
 }
 ```
+
 ```{r}
 readRDS("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels/fit_wba_balanced.rds")
 ```
 
+#### Experimental model fitting 
+##### Exp Data Prep
+```{r}
+sc_df <- read_csv("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/data/sc_df_clean.csv")
+cogsci_df <- read_csv("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/data/cogsci_clean.csv")
+simon_df <- read_csv("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/data/Simonsen_clean.csv")
+```
+#Fix Feedback = NA issue
+```{r}
+sc_df <- sc_df %>% filter(!is.na(Feedback))
+cogsci_df     <- cogsci_df %>% filter(!is.na(Feedback))
+simon_df   <- simon_df %>% filter(!is.na(Feedback))
+```
+
+```{r}
+stan_data_exp <- list(
+  sc = as.list(sc_df),
+  cogsci     = as.list(cogsci_df),
+  simon   = as.list(simon_df)
+)
+```
+
+```{r}
+stan_data_exp$sc$N <- as.integer(length(stan_data_exp$sc$FirstRating))
+stan_data_exp$cogsci$N <- as.integer(length(stan_data_exp$cogsci$FirstRating))
+stan_data_exp$simon$N   <- as.integer(length(stan_data_exp$simon$FirstRating))
+```
+
+#Making total_1 and total_g (vi bør virkelig holde det til en af dem)
+```{r}
+stan_data_exp$sc$total_1     <- rep(8L, length(stan_data_exp$sc$FirstRating))
+stan_data_exp$cogsci$total_1 <- rep(8L, length(stan_data_exp$cogsci$FirstRating))
+stan_data_exp$simon$total_1  <- rep(8L, length(stan_data_exp$simon$FirstRating))
+
+stan_data_exp$sc$total_g     <- rep(8L, length(stan_data_exp$sc$FirstRating))
+stan_data_exp$cogsci$total_g <- rep(8L, length(stan_data_exp$cogsci$FirstRating))
+stan_data_exp$simon$total_g  <- rep(8L, length(stan_data_exp$simon$FirstRating))
+
+```
+
+#Remove ID 
+```{r}
+stan_data_exp$sc$ID <- NULL 
+stan_data_exp$sc$Condition <- NULL 
+stan_data_exp$sc$TimeStamp1 <- NULL
+stan_data_exp$sc$TimeStamp2 <- NULL
+
+stan_data_exp$cogsci$Condition <- NULL
+
+stan_data_exp$simon$Condition <- NULL 
+```
+
+
+
+#### PBA Experimental Model Fitting
+```{r}
+fit_pba_paths <- here::here(
+  "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
+  paste0("fit_pba_", names(stan_data_exp), ".rds")
+) |> set_names(names(stan_data_exp))
+
+if (regenerate_simulations || !all(file.exists(fit_pba_paths))) {
+  fit_pba <- imap(stan_data_exp, function(data, scenario) {
+    fit <- mod_pba$sample(
+      data          = data,
+      chains        = 2,
+      iter_warmup   = 5,
+      iter_sampling = 100,
+      #fixed_param   = TRUE,
+      refresh       = 0
+    )
+    fit$save_object(fit_pba_paths[[scenario]])
+    fit
+  })
+} else {
+  fit_pba <- map(fit_pba_paths, readRDS)
+}
+```
+
+```{r}
+readRDS("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels/fit_pba_self.rds")
+```
+
+#### WBA Experimental Model Fitting 
+```{r}
+fit_wba_paths <- here::here(
+  "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
+  paste0("fit_wba_", names(stan_data_exp), ".rds")
+) |> set_names(names(stan_data_exp))
+
+if (regenerate_simulations || !all(file.exists(fit_wba_paths))) {
+  fit_wba <- imap(stan_data_exp, function(data, scenario) {
+    fit <- mod_weighted_reparam$sample(
+      data          = data,
+      chains        = 2,
+      iter_warmup   = 500,
+      iter_sampling = 2000,
+      #fixed_param   = TRUE,
+      refresh       = 0
+    )
+    fit$save_object(fit_wba_paths[[scenario]])
+    fit
+  })
+} else {
+  fit_wba <- map(fit_wba_paths, readRDS)
+}
+```
