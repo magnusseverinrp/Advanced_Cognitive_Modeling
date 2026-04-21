@@ -32,7 +32,7 @@ model {
   vector[N] beta_post  = 0.5 + weight_direct * (to_vector(total_1) - to_vector(FirstRating))
                              + weight_social * (to_vector(total_g) - to_vector(GroupRating));
                              
-  target += beta_binomial_lpmf(SecondRating | 1, alpha_post, beta_post);
+  target += beta_binomial_lpmf(SecondRating | 8, alpha_post, beta_post);
 }
 
 generated quantities {
@@ -51,8 +51,8 @@ generated quantities {
     real beta_post  = 0.5 + weight_direct * (total_1[i] - FirstRating[i]) 
                          + weight_social * (total_g[i] - GroupRating[i]);
 
-    log_lik[i]        = beta_binomial_lpmf(SecondRating[i] | 1, alpha_post, beta_post);
-    posterior_pred[i] = beta_binomial_rng(1, alpha_post, beta_post);
+    log_lik[i]        = beta_binomial_lpmf(SecondRating[i] | 8, alpha_post, beta_post);
+    posterior_pred[i] = beta_binomial_rng(8, alpha_post, beta_post);
 
     real ap = 0.5 + wd_prior * FirstRating[i] + ws_prior * GroupRating[i];
     real bp = 0.5 + wd_prior * (total_1[i] - FirstRating[i]) 

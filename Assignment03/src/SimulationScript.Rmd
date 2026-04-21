@@ -250,18 +250,18 @@ ws = 0.1
 
 ### WBA: Strong conformity
 ```{r}
-sim_df_wba_social <- simulate_experiment(wba_agent, agent_args = list(rho = 0.09, kappa = 11), n_faces = 20)
+sim_df_wba_social <- simulate_experiment(wba_agent, agent_args = list(rho = 0.09, kappa = 11), n_faces = 100)
 ```
 
 ### WBA: Balanced
 ```{r}
-sim_df_wba_balanced <- simulate_experiment(wba_agent, agent_args = list(rho = 0.5, kappa = 1), n_faces = 20)
+sim_df_wba_balanced <- simulate_experiment(wba_agent, agent_args = list(rho = 0.5, kappa = 1), n_faces = 100)
 
 ```
 
 ### WBA: Self focused
 ```{r}
-sim_df_wba_self <- simulate_experiment(wba_agent, agent_args = list(rho = 0.9, kappa = 1), n_faces = 20)
+sim_df_wba_self <- simulate_experiment(wba_agent, agent_args = list(rho = 0.9, kappa = 1), n_faces = 100)
 
 ```
 
@@ -269,19 +269,19 @@ sim_df_wba_self <- simulate_experiment(wba_agent, agent_args = list(rho = 0.9, k
 
 ### PBA: Strong conformity...
 ```{r}
-sim_df_pba_social <- simulate_experiment(pba_agent, agent_args = list(w = 0.1), n_faces = 20)
+sim_df_pba_social <- simulate_experiment(pba_agent, agent_args = list(w = 0.1), n_faces = 100)
 
 ```
 
 ### PBA: Balanced
 ```{r}
-sim_df_pba_balanced <- simulate_experiment(pba_agent, agent_args = list(w = 0.5), n_faces = 20)
+sim_df_pba_balanced <- simulate_experiment(pba_agent, agent_args = list(w = 0.5), n_faces = 100)
 
 ```
 
 ### PBA: Self Focused
 ```{r}
-sim_df_pba_self <- simulate_experiment(pba_agent, agent_args = list(w = 0.9), n_faces = 20)
+sim_df_pba_self <- simulate_experiment(pba_agent, agent_args = list(w = 0.9), n_faces = 100)
 
 ```
 
@@ -305,19 +305,28 @@ ggplot(sim_pba_all, aes(x = Feedback, y = Change, color = scenario)) +
 ```
 ### Model Fitting 
 ```{r}
-mod_simple       <- cmdstan_model("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/ProbAgent.stan")
-#mod_weighted_raw <- cmdstan_model("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/WeightedAgent.stan")
+mod_pba       <- cmdstan_model("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/ProbAgent.stan")
+
 
 sampler_args <- list(
   chains = 4, 
   parallel_chains = 4, 
   iter_warmup = 1000, 
-  iter_sampling = 1000, 
+  iter_sampling = 2000, 
   refresh = 0
 )
 ```
+```{r}
+mod_weighted_reparam <- cmdstan_model("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/WeightedAgent.stan")
 
-
+sampler_args <- list(
+  chains = 4, 
+  parallel_chains = 4, 
+  iter_warmup = 1000, 
+  iter_sampling = 2000, 
+  refresh = 0
+)
+```
 
 ```{r}
 stan_data_pba <- list(
@@ -325,12 +334,23 @@ stan_data_pba <- list(
   self     = as.list(sim_df_pba_self),
   social   = as.list(sim_df_pba_social)
 )
+
+stan_data_wba <- list(
+  balanced = as.list(sim_df_wba_balanced),
+  self     = as.list(sim_df_wba_self),
+  social   = as.list(sim_df_wba_social)
+)
+
 ```
 
 ```{r}
 stan_data_pba$balanced$N <- as.integer(stan_data_pba$balanced$N[[1]])
 stan_data_pba$self$N     <- as.integer(stan_data_pba$self$N[[1]])
 stan_data_pba$social$N   <- as.integer(stan_data_pba$social$N[[1]])
+
+stan_data_wba$balanced$N <- as.integer(stan_data_wba$balanced$N[[1]])
+stan_data_wba$self$N     <- as.integer(stan_data_wba$self$N[[1]])
+stan_data_wba$social$N   <- as.integer(stan_data_wba$social$N[[1]])
 ```
 
 ```{r}
@@ -341,12 +361,12 @@ fit_pba_paths <- here::here(
 
 if (regenerate_simulations || !all(file.exists(fit_pba_paths))) {
   fit_pba <- imap(stan_data_pba, function(data, scenario) {
-    fit <- mod_simple$sample(
+    fit <- mod_pba$sample(
       data          = data,
       chains        = 2,
-      iter_warmup   = 0,
-      iter_sampling = 1000,
-      fixed_param   = TRUE,
+      iter_warmup   = 500,
+      iter_sampling = 2000,
+      #fixed_param   = TRUE,
       refresh       = 0
     )
     fit$save_object(fit_pba_paths[[scenario]])
@@ -356,3 +376,34 @@ if (regenerate_simulations || !all(file.exists(fit_pba_paths))) {
   fit_pba <- map(fit_pba_paths, readRDS)
 }
 ```
+
+```{r}
+readRDS("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels/fit_pba_self.rds")
+```
+```{r}
+fit_wba_paths <- here::here(
+  "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
+  paste0("fit_wba_", names(stan_data_wba), ".rds")
+) |> set_names(names(stan_data_wba))
+
+if (regenerate_simulations || !all(file.exists(fit_wba_paths))) {
+  fit_wba <- imap(stan_data_wba, function(data, scenario) {
+    fit <- mod_weighted_reparam$sample(
+      data          = data,
+      chains        = 2,
+      iter_warmup   = 500,
+      iter_sampling = 2000,
+      #fixed_param   = TRUE,
+      refresh       = 0
+    )
+    fit$save_object(fit_wba_paths[[scenario]])
+    fit
+  })
+} else {
+  fit_wba <- map(fit_wba_paths, readRDS)
+}
+```
+```{r}
+readRDS("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels/fit_wba_balanced.rds")
+```
+

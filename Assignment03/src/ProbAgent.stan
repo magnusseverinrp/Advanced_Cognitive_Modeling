@@ -19,6 +19,8 @@ parameters {
 model {
   vector[N] alpha_post;
   vector[N] beta_post;
+  
+  w ~ beta(2, 2);
 
   // Vectorized likelihood
   alpha_post = 0.5 + w * to_vector(FirstRating) + (1.0 - w) * to_vector(GroupRating);
@@ -28,6 +30,7 @@ model {
   target += beta_binomial_lpmf(SecondRating | 8, alpha_post, beta_post);
   // theta ~ beta_binomial(N_PSEUDO, alpha_post, beta_post);
 }
+
 
 generated quantities {
   vector[N] log_lik;
