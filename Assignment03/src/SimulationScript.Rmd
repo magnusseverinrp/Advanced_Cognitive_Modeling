@@ -204,8 +204,8 @@ simulate_experiment <- function(agent_fn,
         SecondRating = result$rating_2,
         Feedback     = feedback,
         Change       = result$rating_2 - rating_1,
-        total_g      = 7,
-        total_1      = 7,
+        total_g      = 8,
+        total_1      = 8,
         N            = n_faces
       ) |> bind_cols(as_tibble(agent_args))
       
@@ -335,7 +335,7 @@ stan_data_pba$social$N   <- as.integer(stan_data_pba$social$N[[1]])
 
 ```{r}
 fit_pba_paths <- here::here(
-  "simmodels",
+  "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
   paste0("fit_pba_", names(stan_data_pba), ".rds")
 ) |> set_names(names(stan_data_pba))
 
