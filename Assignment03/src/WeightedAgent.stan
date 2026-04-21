@@ -3,9 +3,9 @@
 // kappa > 0: total evidence scaling (w_d + w_s).
 data {
   int<lower=1> N;
-  array[N] int<lower=0, upper=8> SecondRating;
-  array[N] int<lower=0, upper=8> FirstRating;
-  array[N] int<lower=0, upper=8> GroupRating;
+  array[N] int<lower=1, upper=8> SecondRating;
+  array[N] int<lower=1, upper=8> FirstRating;
+  array[N] int<lower=1, upper=8> GroupRating;
   array[N] int<lower=0> total_1;
   array[N] int<lower=0> total_g;
 }

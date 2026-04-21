@@ -3,9 +3,9 @@
 // p = 0.5 approximates balanced weighting; p -> 1 ignores social; p -> 0 ignores direct.
 data {
   int<lower=1> N;
-  array[N] int<lower=0, upper=7> SecondRating; // noget kunne være er off her ift. 0-7 eller 1-8
-  array[N] int<lower=0, upper=7> FirstRating;
-  array[N] int<lower=0, upper=7> GroupRating;
+  array[N] int<lower=1, upper=8> SecondRating; // noget kunne være er off her ift. 0-7 eller 1-8
+  array[N] int<lower=1, upper=8> FirstRating;
+  array[N] int<lower=1, upper=8> GroupRating;
   array[N] int<lower=0> total_1;
   array[N] int<lower=0> total_g;
   // array[N] int<lower=0, upper=1> theta;

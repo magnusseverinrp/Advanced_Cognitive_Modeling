@@ -189,8 +189,8 @@ simulate_experiment <- function(agent_fn,
   for (face_id in 1:n_faces) {
       
       # Sample ratings
-      rating_1 <- sample(0:8, 1)
-      valid_offsets <- offsets[rating_1 + offsets >= 0 & rating_1 + offsets <= 8]
+      rating_1 <- sample(1:8, 1)
+      valid_offsets <- offsets[rating_1 + offsets >= 1 & rating_1 + offsets <= 8]
       feedback <- sample(valid_offsets, 1)
       rating_g <- rating_1 + feedback
       
@@ -316,24 +316,8 @@ sampler_args <- list(
   refresh = 0
 )
 ```
-```{r}
-# True values for the three WBA scenarios
-true_pba <- list(
-  Self_focused        = list(w = 0.9),
-  Balanced            = list(w = 0.5),
-  Conformist          = list(w = 0.1)
-)
 
-# Generate simulated data for each scenario
-stan_data_pba <- map(true_pba, function(params) {
-  sim <- generate_agent_decisions(
-    params$w, 
-    evidence_combinations, 
-    n_samples = 5
-  ) |> mutate(total1 = 8L, total2 = 3L) # hello noget er off her, ift. marbles vs trust
-  prepare_stan_data(sim)
-})
-```
+
 
 ```{r}
 stan_data_pba <- list(
@@ -341,6 +325,12 @@ stan_data_pba <- list(
   self     = as.list(sim_df_pba_self),
   social   = as.list(sim_df_pba_social)
 )
+```
+
+```{r}
+stan_data_pba$balanced$N <- as.integer(stan_data_pba$balanced$N[[1]])
+stan_data_pba$self$N     <- as.integer(stan_data_pba$self$N[[1]])
+stan_data_pba$social$N   <- as.integer(stan_data_pba$social$N[[1]])
 ```
 
 ```{r}
