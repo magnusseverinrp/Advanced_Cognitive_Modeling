@@ -6,8 +6,7 @@ data {
   array[N] int<lower=1, upper=8> SecondRating;
   array[N] int<lower=1, upper=8> FirstRating;
   array[N] int<lower=1, upper=8> GroupRating;
-  array[N] int<lower=0> total_1;
-  array[N] int<lower=0> total_g;
+  array[N] int<lower=0> total;
 }
 
 parameters {
@@ -29,8 +28,8 @@ model {
   // Vectorized likelihood
   vector[N] alpha_post = 0.5 + weight_direct * to_vector(FirstRating)
                              + weight_social * to_vector(GroupRating);
-  vector[N] beta_post  = 0.5 + weight_direct * (to_vector(total_1) - to_vector(FirstRating))
-                             + weight_social * (to_vector(total_g) - to_vector(GroupRating));
+  vector[N] beta_post  = 0.5 + weight_direct * (to_vector(total) - to_vector(FirstRating))
+                             + weight_social * (to_vector(total) - to_vector(GroupRating));
                              
   target += beta_binomial_lpmf(SecondRating | 8, alpha_post, beta_post);
 }
@@ -48,15 +47,15 @@ generated quantities {
 
   for (i in 1:N) {
     real alpha_post = 0.5 + weight_direct * FirstRating[i] + weight_social * GroupRating[i];
-    real beta_post  = 0.5 + weight_direct * (total_1[i] - FirstRating[i]) 
-                         + weight_social * (total_g[i] - GroupRating[i]);
+    real beta_post  = 0.5 + weight_direct * (total[i] - FirstRating[i]) 
+                         + weight_social * (total[i] - GroupRating[i]);
 
     log_lik[i]        = beta_binomial_lpmf(SecondRating[i] | 8, alpha_post, beta_post);
     posterior_pred[i] = beta_binomial_rng(8, alpha_post, beta_post);
 
     real ap = 0.5 + wd_prior * FirstRating[i] + ws_prior * GroupRating[i];
-    real bp = 0.5 + wd_prior * (total_1[i] - FirstRating[i]) 
-                  + ws_prior * (total_g[i] - GroupRating[i]);
+    real bp = 0.5 + wd_prior * (total[i] - FirstRating[i]) 
+                  + ws_prior * (total[i] - GroupRating[i]);
     prior_pred[i] = beta_binomial_rng(8, ap, bp);
   }
 }

@@ -206,8 +206,7 @@ simulate_experiment <- function(agent_fn,
         SecondRating = result$rating_2,
         Feedback     = feedback,
         Change       = result$rating_2 - rating_1,
-        total_g      = 8,
-        total_1      = 8,
+        total        = 8,
         N            = n_faces
       ) %>% bind_cols(as_tibble(agent_args))
       
@@ -484,6 +483,56 @@ plot_predictive_check <- function(data, title, subtitle) {
 
 ```
 
+```{r}
+# Helper function to generate and combine Prior vs. Posterior checks dynamically
+generate_side_by_side_ppc <- function(fit_list, data_list, model_title) {
+  
+  # Map over all three scenarios (Self_Focused, Balanced, Socially_Influenced)
+  plot_list <- imap(fit_list, function(fit, scenario) {
+    
+    # 1. Extract and plot Prior Predictive
+    prior_data <- extract_predictive_data(
+      fit = fit,
+      stan_data = data_list[[scenario]],
+      scenario_name = "Prior",
+      target_var = "prior_pred"
+    )
+    
+    p_prior <- plot_predictive_check(
+      prior_data,
+      title = paste(model_title, "-", str_replace_all(scenario, "_", " ")),
+      subtitle = "Prior Predictive Check"
+    ) + theme(legend.position = "none") # Hide individual legends to save space
+    
+    # 2. Extract and plot Posterior Predictive
+    post_data <- extract_predictive_data(
+      fit = fit,
+      stan_data = data_list[[scenario]],
+      scenario_name = "Posterior",
+      target_var = "posterior_pred"
+    )
+    
+    p_post <- plot_predictive_check(
+      post_data,
+      title = paste(model_title, "-", str_replace_all(scenario, "_", " ")),
+      subtitle = "Posterior Predictive Check"
+    ) + theme(axis.title.y = element_blank()) # Share Y axis visually with the prior plot
+    
+    # 3. Combine side-by-side
+    return(p_prior | p_post)
+  })
+  
+  # Stack the three scenarios vertically and collect the legend at the very bottom
+  combined_all <- wrap_plots(plot_list, ncol = 1) + 
+    plot_layout(guides = "collect") & 
+    theme(legend.position = "bottom")
+  
+  return(combined_all)
+}
+
+cat("=== Proportional Bayesian Agent (PBA) Predictive Checks ===\n")
+```
+
 
 ```{r}
 # Helper function to generate and combine Prior vs. Posterior checks dynamically
@@ -537,6 +586,56 @@ generate_side_by_side_ppc <- function(fit_list, data_list, model_title) {
 
 
 ```{r}
+# Helper function to generate and combine Prior vs. Posterior checks dynamically
+generate_side_by_side_ppc <- function(fit_list, data_list, model_title) {
+  
+  # Map over all three scenarios (Self_Focused, Balanced, Socially_Influenced)
+  plot_list <- imap(fit_list, function(fit, scenario) {
+    
+    # 1. Extract and plot Prior Predictive
+    prior_data <- extract_predictive_data(
+      fit = fit,
+      stan_data = data_list[[scenario]],
+      scenario_name = "Prior",
+      target_var = "prior_pred"
+    )
+    
+    p_prior <- plot_predictive_check(
+      prior_data,
+      title = paste(model_title, "-", str_replace_all(scenario, "_", " ")),
+      subtitle = "Prior Predictive Check"
+    ) + theme(legend.position = "none") # Hide individual legends to save space
+    
+    # 2. Extract and plot Posterior Predictive
+    post_data <- extract_predictive_data(
+      fit = fit,
+      stan_data = data_list[[scenario]],
+      scenario_name = "Posterior",
+      target_var = "posterior_pred"
+    )
+    
+    p_post <- plot_predictive_check(
+      post_data,
+      title = paste(model_title, "-", str_replace_all(scenario, "_", " ")),
+      subtitle = "Posterior Predictive Check"
+    ) + theme(axis.title.y = element_blank()) # Share Y axis visually with the prior plot
+    
+    # 3. Combine side-by-side
+    return(p_prior | p_post)
+  })
+  
+  # Stack the three scenarios vertically and collect the legend at the very bottom
+  combined_all <- wrap_plots(plot_list, ncol = 1) + 
+    plot_layout(guides = "collect") & 
+    theme(legend.position = "bottom")
+  
+  return(combined_all)
+}
+
+cat("=== Proportional Bayesian Agent (PBA) Predictive Checks ===\n")
+```
+
+```{r}
 pba_combined <- generate_side_by_side_ppc(fit_pba, stan_data_pba, "PBA")
 print(pba_combined)
 
@@ -571,8 +670,7 @@ stan_data_exp <- map(cogsci_by_participant, function(df_p) {
     FirstRating = as.integer(df_p$FirstRating),
     SecondRating = as.integer(df_p$SecondRating),
     GroupRating = as.integer(df_p$GroupRating),
-    total_1  = rep(8L, nrow(df_p)),
-    total_g  = rep(8L, nrow(df_p))
+    total  = rep(8L, nrow(df_p))
   )
 })
 ```
@@ -647,5 +745,83 @@ pba_estimates <- imap_dfr(fit_pba, function(fit, pid) {
 wba_estimates <- wba_estimates %>% mutate(ID = as.integer(ID))
 pba_estimates <- pba_estimates %>% mutate(ID = as.integer(ID))
 
+```
+
+# Data exploration
+```{r}
+# WBA: rho
+p_rho <- wba_estimates %>%
+  filter(variable == "rho") %>%
+  arrange(mean) %>%
+  mutate(ID = factor(ID, levels = ID)) %>%
+  ggplot(aes(x = ID, y = mean)) +
+  geom_point(size = 2, color = "#4CAF50") +
+  labs(title = "WBA: rho per participant",
+       x = "Participant", y = "rho") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# WBA: kappa
+p_kappa <- wba_estimates %>%
+  filter(variable == "kappa") %>%
+  arrange(mean) %>%
+  mutate(ID = factor(ID, levels = ID)) %>%
+  ggplot(aes(x = ID, y = mean)) +
+  geom_point(size = 2, color = "#E91E63") +
+  labs(title = "WBA: Kappa per participant",
+       x = "Participant", y = "kappa") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+# PBA: w
+p_w <- pba_estimates %>%
+  filter(variable == "w") %>%
+  arrange(mean) %>%
+  mutate(ID = factor(ID, levels = ID)) %>%
+  ggplot(aes(x = ID, y = mean)) +
+  geom_point(size = 2,color = "#2196F3") +
+  labs(title = "PBA: weight per participant",
+       x = "Participant", y = "w") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+p_rho / p_kappa / p_w
+```
+
+```{r}
+# PBA: w per participant
+p_w <- pba_estimates %>%
+  filter(variable == "w") %>%
+  ggplot(aes(x = reorder(ID, mean), y = mean)) +
+  geom_col(fill = "steelblue") +
+  #geom_hline(aes(yintercept = mean(mean)), linewidth = 0.8) +
+  #geom_hline(yintercept = 0.5, linetype = "dashed") +
+  labs(title = "PBA: w", x = "Participants", y = "w") +
+  theme_bw() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+# WBA: rho per participant
+p_rho <- wba_estimates %>%
+  filter(variable == "rho") %>%
+  ggplot(aes(x = reorder(ID, mean), y = mean)) +
+  geom_col(fill = "orange") +
+  #geom_hline(aes(yintercept = mean(mean)), linewidth = 0.8) +
+  #geom_hline(yintercept = 0.5, linetype = "dashed") +
+  labs(title = "WBA: rho", x = "Participants", y = "rho") +
+  theme_bw() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+# WBA: kappa per participant
+p_kappa <- wba_estimates %>%
+  filter(variable == "kappa") %>%
+  ggplot(aes(x = reorder(ID, mean), y = mean)) +
+  geom_col(fill = "coral") +
+  #geom_hline(aes(yintercept = mean(mean)), linewidth = 0.8) +
+  labs(title = "WBA: kappa", x = "Participants", y = "kappa") +
+  theme_bw() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+
+(p_rho | p_kappa )/ p_w
 ```
 
