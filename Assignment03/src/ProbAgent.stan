@@ -50,6 +50,6 @@ generated quantities {
     real ap = 0.5 + w_prior * FirstRating[i] + (1.0 - w_prior) * GroupRating[i];
     real bp = 0.5 + w_prior * (total_1[i] - FirstRating[i])
                   + (1.0 - w_prior) * (total_g[i] - GroupRating[i]);
-    prior_pred[i] = beta_binomial_rng(1, ap, bp);
+    prior_pred[i] = beta_binomial_rng(8, ap, bp);
   }
 }
