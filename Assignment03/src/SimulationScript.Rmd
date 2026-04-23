@@ -17,7 +17,9 @@ pacman::p_load(
   patchwork
 )
 
-setwd(here::here("/Users/sofiebojgaardthomsen/Documents/ACM/GitHub/Advanced_Cognitive_Modeling/Assignment03/src"))
+main_path <- "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src"
+
+setwd(main_path)
 ```
 
 ```{r}
@@ -360,8 +362,8 @@ stan_data_wba$social$N   <- as.integer(stan_data_wba$social$N[[1]])
 
 #### PBA Sim Model Fitting
 ```{r}
-fit_pba_paths <- here::here(
-  "/Users/sofiebojgaardthomsen/Documents/ACM/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
+fit_pba_paths <- file.path(
+  glue::glue("{main_path}/simmodels"),
   paste0("fit_pba_", names(stan_data_pba), ".rds")
 ) %>% set_names(names(stan_data_pba))
 
@@ -389,8 +391,8 @@ readRDS("simmodels/fit_pba_self.rds")
 
 #### WBA Sim Model Fitting 
 ```{r}
-fit_wba_paths <- here::here(
-  "/Users/sofiebojgaardthomsen/Documents/ACM/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
+fit_wba_paths <- file.path(
+  glue::glue("{main_path}/simmodels"),
   paste0("fit_wba_", names(stan_data_wba), ".rds")
 ) %>% set_names(names(stan_data_wba))
 
@@ -678,8 +680,8 @@ stan_data_exp <- map(cogsci_by_participant, function(df_p) {
 
 #### PBA Experimental Model Fitting
 ```{r, include=FALSE}
-fit_pba_paths <- here::here(
-  "/Users/sofiebojgaardthomsen/Documents/ACM/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
+fit_pba_paths <- file.path(
+  glue::glue("{main_path}/simmodels"),
   paste0("fit_pba_", names(stan_data_exp), ".rds")
 ) %>% set_names(names(stan_data_exp))
 
@@ -704,8 +706,8 @@ if (regenerate_simulations || !all(file.exists(fit_pba_paths))) {
 
 #### WBA Experimental Model Fitting 
 ```{r, include= FALSE}
-fit_wba_paths <- here::here(
-  "/Users/sofiebojgaardthomsen/Documents/ACM/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
+fit_wba_paths <- file.path(
+  glue::glue("{main_path}/simmodels"),
   paste0("fit_wba_", names(stan_data_exp), ".rds")
 ) %>% set_names(names(stan_data_exp))
 
@@ -820,7 +822,6 @@ p_kappa <- wba_estimates %>%
   labs(title = "WBA: kappa", x = "Participants", y = "kappa") +
   theme_bw() +
   theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
-
 
 (p_rho | p_kappa )/ p_w
 ```

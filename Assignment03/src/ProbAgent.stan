@@ -42,12 +42,12 @@ generated quantities {
     real beta_post  = 0.5 + w * (total[i] - FirstRating[i])
                           + (1.0 - w) * (total[i] - GroupRating[i]);
 
-    log_lik[i]        = beta_binomial_lpmf(SecondRating[i] | 8, alpha_post, beta_post);
-    posterior_pred[i] = beta_binomial_rng(8, alpha_post, beta_post);
+    log_lik[i]        = beta_binomial_lpmf(SecondRating[i] | 7, alpha_post, beta_post)+1;
+    posterior_pred[i] = beta_binomial_rng(7, alpha_post, beta_post)+1;
 
     real ap = 0.5 + w_prior * FirstRating[i] + (1.0 - w_prior) * GroupRating[i];
     real bp = 0.5 + w_prior * (total[i] - FirstRating[i])
                   + (1.0 - w_prior) * (total[i] - GroupRating[i]);
-    prior_pred[i] = beta_binomial_rng(8, ap, bp);
+    prior_pred[i] = beta_binomial_rng(7, ap, bp)+1;
   }
 }
