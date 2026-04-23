@@ -345,9 +345,6 @@ stan_data_wba <- list(
   social   = as.list(sim_df_wba_social)
 )
 
-stan_data_exp <- list(
-  
-)
 ```
 
 ```{r}
@@ -438,12 +435,45 @@ check_diagnostics <- function(fit, label) {
               label, sum(diag_smry$num_divergent), min_ebfmi, n_fail))
 
 }
-cat("\n=== Weighted Bayesian Agent (Raw Parameterisation) ===\n")
+cat("\n=== WBA and PBA scenarios ===\n")
 
 iwalk(fit_wba, ~ check_diagnostics(.x, paste("WBA", .y)))
 iwalk(fit_pba, ~ check_diagnostics(.x, paste("PBA", .y)))
 
 ```
+```{r}
+# WBA trace and rank plots
+imap(fit_wba, function(fit, scenario) {
+  draws_df <- as_draws_df(fit$draws())
+  
+  p_trace <- mcmc_trace(draws_df, pars = c("rho", "kappa")) +
+    theme_classic() +
+    ggtitle(paste("WBA Trace Plot -", scenario))
+  
+  p_rank <- mcmc_rank_hist(draws_df, pars = c("rho", "kappa")) +
+    theme_classic() +
+    ggtitle(paste("WBA Rank Histogram -", scenario))
+  
+  print(p_trace / p_rank)
+})
+
+# PBA trace and rank plots
+imap(fit_pba, function(fit, scenario) {
+  draws_df <- as_draws_df(fit$draws())
+  
+  p_trace <- mcmc_trace(draws_df, pars = c("w")) +
+    theme_classic() +
+    ggtitle(paste("PBA Trace Plot -", scenario))
+  
+  p_rank <- mcmc_rank_hist(draws_df, pars = c("w")) +
+    theme_classic() +
+    ggtitle(paste("PBA Rank Histogram -", scenario))
+  
+  print(p_trace / p_rank)
+})
+```
+
+
 
 ```{r}
 # Prior and posterior predictive checks
@@ -485,56 +515,6 @@ plot_predictive_check <- function(data, title, subtitle) {
 
 ```
 
-```{r}
-# Helper function to generate and combine Prior vs. Posterior checks dynamically
-generate_side_by_side_ppc <- function(fit_list, data_list, model_title) {
-  
-  # Map over all three scenarios (Self_Focused, Balanced, Socially_Influenced)
-  plot_list <- imap(fit_list, function(fit, scenario) {
-    
-    # 1. Extract and plot Prior Predictive
-    prior_data <- extract_predictive_data(
-      fit = fit,
-      stan_data = data_list[[scenario]],
-      scenario_name = "Prior",
-      target_var = "prior_pred"
-    )
-    
-    p_prior <- plot_predictive_check(
-      prior_data,
-      title = paste(model_title, "-", str_replace_all(scenario, "_", " ")),
-      subtitle = "Prior Predictive Check"
-    ) + theme(legend.position = "none") # Hide individual legends to save space
-    
-    # 2. Extract and plot Posterior Predictive
-    post_data <- extract_predictive_data(
-      fit = fit,
-      stan_data = data_list[[scenario]],
-      scenario_name = "Posterior",
-      target_var = "posterior_pred"
-    )
-    
-    p_post <- plot_predictive_check(
-      post_data,
-      title = paste(model_title, "-", str_replace_all(scenario, "_", " ")),
-      subtitle = "Posterior Predictive Check"
-    ) + theme(axis.title.y = element_blank()) # Share Y axis visually with the prior plot
-    
-    # 3. Combine side-by-side
-    return(p_prior | p_post)
-  })
-  
-  # Stack the three scenarios vertically and collect the legend at the very bottom
-  combined_all <- wrap_plots(plot_list, ncol = 1) + 
-    plot_layout(guides = "collect") & 
-    theme(legend.position = "bottom")
-  
-  return(combined_all)
-}
-
-cat("=== Proportional Bayesian Agent (PBA) Predictive Checks ===\n")
-```
-
 
 ```{r}
 # Helper function to generate and combine Prior vs. Posterior checks dynamically
@@ -583,58 +563,6 @@ generate_side_by_side_ppc <- function(fit_list, data_list, model_title) {
   return(combined_all)
 }
 
-
-```
-
-
-```{r}
-# Helper function to generate and combine Prior vs. Posterior checks dynamically
-generate_side_by_side_ppc <- function(fit_list, data_list, model_title) {
-  
-  # Map over all three scenarios (Self_Focused, Balanced, Socially_Influenced)
-  plot_list <- imap(fit_list, function(fit, scenario) {
-    
-    # 1. Extract and plot Prior Predictive
-    prior_data <- extract_predictive_data(
-      fit = fit,
-      stan_data = data_list[[scenario]],
-      scenario_name = "Prior",
-      target_var = "prior_pred"
-    )
-    
-    p_prior <- plot_predictive_check(
-      prior_data,
-      title = paste(model_title, "-", str_replace_all(scenario, "_", " ")),
-      subtitle = "Prior Predictive Check"
-    ) + theme(legend.position = "none") # Hide individual legends to save space
-    
-    # 2. Extract and plot Posterior Predictive
-    post_data <- extract_predictive_data(
-      fit = fit,
-      stan_data = data_list[[scenario]],
-      scenario_name = "Posterior",
-      target_var = "posterior_pred"
-    )
-    
-    p_post <- plot_predictive_check(
-      post_data,
-      title = paste(model_title, "-", str_replace_all(scenario, "_", " ")),
-      subtitle = "Posterior Predictive Check"
-    ) + theme(axis.title.y = element_blank()) # Share Y axis visually with the prior plot
-    
-    # 3. Combine side-by-side
-    return(p_prior | p_post)
-  })
-  
-  # Stack the three scenarios vertically and collect the legend at the very bottom
-  combined_all <- wrap_plots(plot_list, ncol = 1) + 
-    plot_layout(guides = "collect") & 
-    theme(legend.position = "bottom")
-  
-  return(combined_all)
-}
-
-cat("=== Proportional Bayesian Agent (PBA) Predictive Checks ===\n")
 ```
 
 ```{r}
@@ -781,8 +709,8 @@ fit_pba_paths <- file.path(
 ) %>% set_names(names(stan_data_exp))
 
 if (regenerate_simulations || !all(file.exists(fit_pba_paths))) {
-  fit_pba <- imap(stan_data_exp, function(data, scenario) {
-    fit <- mod_pba$sample(
+  fit_pba_exp <- imap(stan_data_exp, function(data, scenario) {
+    fit_exp <- mod_pba$sample(
       data          = data,
       chains        = 2,
       iter_warmup   = 500,
@@ -790,14 +718,13 @@ if (regenerate_simulations || !all(file.exists(fit_pba_paths))) {
       #fixed_param   = TRUE,
       refresh       = 0
     )
-    fit$save_object(fit_pba_paths[[scenario]])
-    fit
+    fit_exp$save_object(fit_pba_paths[[scenario]])
+    fit_exp
   })
 } else {
-  fit_pba <- map(fit_pba_paths, readRDS)
+  fit_pba_exp <- map(fit_pba_paths, readRDS)
 }
 ```
-
 
 #### WBA Experimental Model Fitting 
 ```{r, include= FALSE}
@@ -807,8 +734,8 @@ fit_wba_paths <- file.path(
 ) %>% set_names(names(stan_data_exp))
 
 if (regenerate_simulations || !all(file.exists(fit_wba_paths))) {
-  fit_wba <- imap(stan_data_exp, function(data, scenario) {
-    fit <- mod_weighted_reparam$sample(
+  fit_wba_exp <- imap(stan_data_exp, function(data, scenario) {
+    fit_exp <- mod_weighted_reparam$sample(
       data          = data,
       chains        = 2,
       iter_warmup   = 500,
@@ -816,11 +743,11 @@ if (regenerate_simulations || !all(file.exists(fit_wba_paths))) {
       #fixed_param   = TRUE,
       refresh       = 0
     )
-    fit$save_object(fit_wba_paths[[scenario]])
-    fit
+    fit_exp$save_object(fit_wba_paths[[scenario]])
+    fit_exp
   })
 } else {
-  fit_wba <- map(fit_wba_paths, readRDS)
+  fit_wba_exp <- map(fit_wba_paths, readRDS)
 }
 ```
 
@@ -829,12 +756,12 @@ if (regenerate_simulations || !all(file.exists(fit_wba_paths))) {
 
 ```{r}
 # WBA: one rho per participant
-wba_estimates <- imap_dfr(fit_wba, function(fit, pid) {
+wba_estimates <- imap_dfr(fit_wba_exp, function(fit, pid) {
   fit$summary(c("rho", "kappa")) %>% mutate(ID = pid)
 })
 
 # PBA: one w per participant  
-pba_estimates <- imap_dfr(fit_pba, function(fit, pid) {
+pba_estimates <- imap_dfr(fit_pba_exp, function(fit, pid) {
   fit$summary("w") %>% mutate(ID = pid)
 })
 
@@ -921,3 +848,23 @@ p_kappa <- wba_estimates %>%
 (p_rho | p_kappa )/ p_w
 ```
 
+# Checking diagnostics
+```{r}
+# Check diagnostics
+check_diagnostics <- function(fit, label) {
+  diag_smry <- fit$diagnostic_summary()
+  min_ebfmi <- min(diag_smry$ebfmi)
+  
+  smry <- fit$summary() %>% filter(!is.na(rhat))
+  n_fail <- smry %>% filter(rhat > 1.01 | ess_bulk < 400 | ess_tail < 400) %>% nrow()
+  
+  cat(sprintf("%-25s | Divs: %3d | Min E-BFMI: %.2f | Failures: %d\n", 
+              label, sum(diag_smry$num_divergent), min_ebfmi, n_fail))
+
+}
+cat("\n=== WBA and PBA scenarios ===\n")
+
+iwalk(fit_wba, ~ check_diagnostics(.x, paste("WBA", .y)))
+iwalk(fit_pba, ~ check_diagnostics(.x, paste("PBA", .y)))
+
+```
