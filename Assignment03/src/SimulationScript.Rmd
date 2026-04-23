@@ -17,7 +17,7 @@ pacman::p_load(
   patchwork
 )
 
-main_path <- "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src"
+main_path <- "/Users/sofiebojgaardthomsen/Documents/ACM/GitHub/Advanced_Cognitive_Modeling/Assignment03/src"
 
 setwd(main_path)
 ```
@@ -645,6 +645,101 @@ wba_combined <- generate_side_by_side_ppc(fit_wba, stan_data_wba, "WBA")
 print(wba_combined)
 
 ```
+
+## Prior-posterior update checks
+```{r}
+# WBA Prior-Posterior Update (simulated)
+wba_draws_balanced <- fit_wba$balanced$draws(c("rho", "kappa", "rho_prior", "kappa_prior"), format = "df")
+wba_draws_self     <- fit_wba$self$draws(c("rho", "kappa", "rho_prior", "kappa_prior"), format = "df")
+wba_draws_social   <- fit_wba$social$draws(c("rho", "kappa", "rho_prior", "kappa_prior"), format = "df")
+
+
+# PLOT RHO
+# wba self rho
+p_rho_self <- ggplot(wba_draws_self) +
+  geom_density(aes(x = rho_prior), fill = "red", colour = "black", alpha = 0.8) +
+  geom_density(aes(x = rho), fill = "blue", colour = "black", alpha = 0.8) +
+  geom_vline(xintercept = 0.9, linetype = "dashed", color = "black", linewidth = 1) +
+  labs(title = "WBA rho - Self", x = "rho")
+
+# wba balanced rho
+p_rho_balanced <- ggplot(wba_draws_balanced) +
+  geom_density(aes(x = rho_prior), fill = "red", colour = "black", alpha = 0.8) +
+  geom_density(aes(x = rho), fill = "blue", colour = "black", alpha = 0.8) +
+  geom_vline(xintercept = 0.5, linetype = "dashed", color = "black", linewidth = 1) +
+  labs(title = "WBA rho - Balanced", x = "rho")
+
+# wba social rho
+p_rho_social <- ggplot(wba_draws_social) +
+  geom_density(aes(x = rho_prior), fill = "red", colour = "black", alpha = 0.8) +
+  geom_density(aes(x = rho), fill = "blue", colour = "black", alpha = 0.8) +
+  geom_vline(xintercept = 0.09, linetype = "dashed", color = "black", linewidth = 1) +
+  labs(title = "WBA rho - Social", x = "rho")
+
+
+# PLOT KAPPA
+# wba self kappa
+p_kappa_self <- ggplot(wba_draws_self) +
+  geom_density(aes(x = kappa_prior), fill = "red", colour = "black", alpha = 0.8) +
+  geom_density(aes(x = kappa), fill = "blue", colour = "black", alpha = 0.8) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "black", linewidth = 1) +
+  labs(title = "WBA kappa - Self", x = "kappa")
+
+# wba balanced kappa
+p_kappa_balanced <- ggplot(wba_draws_balanced) +
+  geom_density(aes(x = kappa_prior), fill = "red", colour = "black", alpha = 0.8) +
+  geom_density(aes(x = kappa), fill = "blue", colour = "black", alpha = 0.8) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "black", linewidth = 1) +
+  labs(title = "WBA kappa - Balanced", x = "kappa")
+
+# wba social kappa
+p_kappa_social <- ggplot(wba_draws_social) +
+  geom_density(aes(x = kappa_prior), fill = "red", colour = "black", alpha = 0.8) +
+  geom_density(aes(x = kappa), fill = "blue", colour = "black", alpha = 0.8) +
+  geom_vline(xintercept = 11, linetype = "dashed", color = "black", linewidth = 1) +
+  labs(title = "WBA kappa - Social", x = "kappa")
+
+# Combine
+(p_rho_self | p_rho_balanced | p_rho_social) /
+(p_kappa_self | p_kappa_balanced | p_kappa_social)
+```
+
+
+```{r}
+# PBA Prior-Posterior Update (simulated)
+pba_draws_balanced <- fit_pba$balanced$draws(c("w", "w_prior"), format = "df")
+pba_draws_self     <- fit_pba$self$draws(c("w", "w_prior"), format = "df")
+pba_draws_social   <- fit_pba$social$draws(c("w", "w_prior"), format = "df")
+
+# PLOT W
+# pba self w
+pba_w_self <- ggplot(pba_draws_self) +
+  geom_density(aes(x = w_prior), fill = "red", colour = "black", alpha = 0.8) +
+  geom_density(aes(x = w), fill = "blue", colour = "black", alpha = 0.8) +
+  geom_vline(xintercept = 0.9, linetype = "dashed", color = "black", linewidth = 1) +
+  labs(title = "WBA w - Self", x = "w")
+
+# pba balanced w
+pba_w_balanced <- ggplot(pba_draws_balanced) +
+  geom_density(aes(x = w_prior), fill = "red", colour = "black", alpha = 0.8) +
+  geom_density(aes(x = w), fill = "blue", colour = "black", alpha = 0.8) +
+  geom_vline(xintercept = 0.5, linetype = "dashed", color = "black", linewidth = 1) +
+  labs(title = "WBA w - Balanced", x = "w")
+
+# pba social w
+pba_w_social <- ggplot(pba_draws_social) +
+  geom_density(aes(x = w_prior), fill = "red", colour = "black", alpha = 0.8) +
+  geom_density(aes(x = w), fill = "blue", colour = "black", alpha = 0.8) +
+  geom_vline(xintercept = 0.1, linetype = "dashed", color = "black", linewidth = 1) +
+  labs(title = "WBA w - Social", x = "w")
+
+
+# Combine
+(pba_w_self | pba_w_balanced | pba_w_social)
+
+
+```
+
 
 #### Experimental model fitting 
 ##### Exp Data Prep
