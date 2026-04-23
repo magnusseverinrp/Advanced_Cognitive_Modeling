@@ -209,7 +209,7 @@ simulate_experiment <- function(agent_fn,
         total_g      = 8,
         total_1      = 8,
         N            = n_faces
-      ) |> bind_cols(as_tibble(agent_args))
+      ) %>% bind_cols(as_tibble(agent_args))
       
       idx <- idx + 1
   } 
@@ -291,9 +291,9 @@ sim_df_pba_self <- simulate_experiment(pba_agent, agent_args = list(w = 0.9), n_
 ```{r}
 # combine and label your scenarios
 sim_pba_all <- bind_rows(
-  simulate_experiment(pba_agent, list(w = 0.1), n_faces = 200) |> mutate(scenario = "Conformist (w=0.1)"),
-  simulate_experiment(pba_agent, list(w = 0.5), n_faces = 200) |> mutate(scenario = "Balanced (w=0.5)"),
-  simulate_experiment(pba_agent, list(w = 0.9), n_faces = 200) |> mutate(scenario = "Self-focused (w=0.9)")
+  simulate_experiment(pba_agent, list(w = 0.1), n_faces = 200) %>% mutate(scenario = "Conformist (w=0.1)"),
+  simulate_experiment(pba_agent, list(w = 0.5), n_faces = 200) %>% mutate(scenario = "Balanced (w=0.5)"),
+  simulate_experiment(pba_agent, list(w = 0.9), n_faces = 200) %>% mutate(scenario = "Self-focused (w=0.9)")
 )
 
 # Then plot
@@ -364,7 +364,7 @@ stan_data_wba$social$N   <- as.integer(stan_data_wba$social$N[[1]])
 fit_pba_paths <- here::here(
   "/Users/sofiebojgaardthomsen/Documents/ACM/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
   paste0("fit_pba_", names(stan_data_pba), ".rds")
-) |> set_names(names(stan_data_pba))
+) %>% set_names(names(stan_data_pba))
 
 if (regenerate_simulations || !all(file.exists(fit_pba_paths))) {
   fit_pba <- imap(stan_data_pba, function(data, scenario) {
@@ -393,7 +393,7 @@ readRDS("simmodels/fit_pba_self.rds")
 fit_wba_paths <- here::here(
   "/Users/sofiebojgaardthomsen/Documents/ACM/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
   paste0("fit_wba_", names(stan_data_wba), ".rds")
-) |> set_names(names(stan_data_wba))
+) %>% set_names(names(stan_data_wba))
 
 if (regenerate_simulations || !all(file.exists(fit_wba_paths))) {
   fit_wba <- imap(stan_data_wba, function(data, scenario) {
@@ -430,8 +430,8 @@ check_diagnostics <- function(fit, label) {
   diag_smry <- fit$diagnostic_summary()
   min_ebfmi <- min(diag_smry$ebfmi)
   
-  smry <- fit$summary() |> filter(!is.na(rhat))
-  n_fail <- smry |> filter(rhat > 1.01 | ess_bulk < 400 | ess_tail < 400) |> nrow()
+  smry <- fit$summary() %>% filter(!is.na(rhat))
+  n_fail <- smry %>% filter(rhat > 1.01 | ess_bulk < 400 | ess_tail < 400) %>% nrow()
   
   cat(sprintf("%-25s | Divs: %3d | Min E-BFMI: %.2f | Failures: %d\n", 
               label, sum(diag_smry$num_divergent), min_ebfmi, n_fail))
@@ -466,7 +466,7 @@ extract_predictive_data <- function(fit, stan_data, scenario_name, target_var) {
 }
 
 plot_predictive_check <- function(data, title, subtitle) {
-  data |>
+  data %>%
     ggplot(aes(x = value, fill = type, colour = type)) +
     geom_bar(position = "dodge", alpha = 0.6) +
     scale_x_continuous(breaks = 1:8) +
@@ -548,71 +548,50 @@ print(wba_combined)
 #### Experimental model fitting 
 ##### Exp Data Prep
 ```{r}
-sc_df <- read_csv("../data/sc_df_clean.csv")
+#We chose the cogsci df as our empirical data
 cogsci_df <- read_csv("../data/cogsci_clean.csv")
-simon_df <- read_csv("../data/Simonsen_clean.csv")
 ```
 #Fix Feedback = NA issue
 ```{r}
-sc_df <- sc_df %>% filter(!is.na(Feedback))
+# Removing NA's
 cogsci_df     <- cogsci_df %>% filter(!is.na(Feedback))
-simon_df   <- simon_df %>% filter(!is.na(Feedback))
 ```
 
 ```{r}
-stan_data_exp <- list(
-  sc = as.list(sc_df),
-  cogsci     = as.list(cogsci_df),
-  simon   = as.list(simon_df)
-)
+# Split into a named list, one dataframe per participant
+cogsci_by_participant <- cogsci_df %>%
+  group_by(ID) %>%
+  group_split() %>%
+  set_names(unique(cogsci_df$ID))
+
+# Build stan data list for each participant
+stan_data_exp <- map(cogsci_by_participant, function(df_p) {
+  list(
+    N        = nrow(df_p),
+    FirstRating = as.integer(df_p$FirstRating),
+    SecondRating = as.integer(df_p$SecondRating),
+    GroupRating = as.integer(df_p$GroupRating),
+    total_1  = rep(8L, nrow(df_p)),
+    total_g  = rep(8L, nrow(df_p))
+  )
+})
 ```
-
-```{r}
-stan_data_exp$sc$N <- as.integer(length(stan_data_exp$sc$FirstRating))
-stan_data_exp$cogsci$N <- as.integer(length(stan_data_exp$cogsci$FirstRating))
-stan_data_exp$simon$N   <- as.integer(length(stan_data_exp$simon$FirstRating))
-```
-
-#Making total_1 and total_g (vi bør virkelig holde det til en af dem)
-```{r}
-stan_data_exp$sc$total_1     <- rep(8L, length(stan_data_exp$sc$FirstRating))
-stan_data_exp$cogsci$total_1 <- rep(8L, length(stan_data_exp$cogsci$FirstRating))
-stan_data_exp$simon$total_1  <- rep(8L, length(stan_data_exp$simon$FirstRating))
-
-stan_data_exp$sc$total_g     <- rep(8L, length(stan_data_exp$sc$FirstRating))
-stan_data_exp$cogsci$total_g <- rep(8L, length(stan_data_exp$cogsci$FirstRating))
-stan_data_exp$simon$total_g  <- rep(8L, length(stan_data_exp$simon$FirstRating))
-
-```
-
-#Remove ID 
-```{r}
-stan_data_exp$sc$ID <- NULL 
-stan_data_exp$sc$Condition <- NULL 
-stan_data_exp$sc$TimeStamp1 <- NULL
-stan_data_exp$sc$TimeStamp2 <- NULL
-
-stan_data_exp$cogsci$Condition <- NULL
-
-stan_data_exp$simon$Condition <- NULL 
-```
-
 
 
 #### PBA Experimental Model Fitting
-```{r}
+```{r, include=FALSE}
 fit_pba_paths <- here::here(
   "/Users/sofiebojgaardthomsen/Documents/ACM/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
   paste0("fit_pba_", names(stan_data_exp), ".rds")
-) |> set_names(names(stan_data_exp))
+) %>% set_names(names(stan_data_exp))
 
 if (regenerate_simulations || !all(file.exists(fit_pba_paths))) {
   fit_pba <- imap(stan_data_exp, function(data, scenario) {
     fit <- mod_pba$sample(
       data          = data,
       chains        = 2,
-      iter_warmup   = 5,
-      iter_sampling = 100,
+      iter_warmup   = 500,
+      iter_sampling = 2000,
       #fixed_param   = TRUE,
       refresh       = 0
     )
@@ -624,24 +603,21 @@ if (regenerate_simulations || !all(file.exists(fit_pba_paths))) {
 }
 ```
 
-```{r}
-readRDS("simmodels/fit_pba_self.rds")
-```
 
 #### WBA Experimental Model Fitting 
-```{r}
+```{r, include= FALSE}
 fit_wba_paths <- here::here(
   "/Users/sofiebojgaardthomsen/Documents/ACM/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/simmodels",
   paste0("fit_wba_", names(stan_data_exp), ".rds")
-) |> set_names(names(stan_data_exp))
+) %>% set_names(names(stan_data_exp))
 
 if (regenerate_simulations || !all(file.exists(fit_wba_paths))) {
   fit_wba <- imap(stan_data_exp, function(data, scenario) {
     fit <- mod_weighted_reparam$sample(
       data          = data,
       chains        = 2,
-      iter_warmup   = 5,
-      iter_sampling = 100,
+      iter_warmup   = 500,
+      iter_sampling = 2000,
       #fixed_param   = TRUE,
       refresh       = 0
     )
@@ -651,5 +627,25 @@ if (regenerate_simulations || !all(file.exists(fit_wba_paths))) {
 } else {
   fit_wba <- map(fit_wba_paths, readRDS)
 }
+```
+
+
+#### Extract per-participant estimates
+
+```{r}
+# WBA: one rho per participant
+wba_estimates <- imap_dfr(fit_wba, function(fit, pid) {
+  fit$summary(c("rho", "kappa")) %>% mutate(ID = pid)
+})
+
+# PBA: one w per participant  
+pba_estimates <- imap_dfr(fit_pba, function(fit, pid) {
+  fit$summary("w") %>% mutate(ID = pid)
+})
+
+#Just to verify that it includes the participants
+wba_estimates <- wba_estimates %>% mutate(ID = as.integer(ID))
+pba_estimates <- pba_estimates %>% mutate(ID = as.integer(ID))
+
 ```
 
