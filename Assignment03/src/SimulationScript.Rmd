@@ -454,8 +454,6 @@ iwalk(fit_pba, ~ check_diagnostics(.x, paste("PBA", .y)))
 
 ```
 
-
-
 ```{r}
 # WBA trace plots
 imap(fit_wba, function(fit, scenario) {
@@ -479,6 +477,176 @@ imap(fit_pba, function(fit, scenario) {
   
   print(p_trace)
 })
+```
+
+# Model Recovery 
+```{r}
+n_sims <- 100
+plan(multisession, workers = parallel::detectCores() - 2)
+
+if (regenerate_simulations || !file.exists("simmodels/ch10_model_recovery.rds")) {
+
+    sim_grid <- tribble(~sim_id, ~true_model, ~w,   ~rho,  ~kappa, ~scenario,
+  1, "PBA", 0.1, NA,   NA,  "PBA: Strong conformity",
+  2, "PBA", 0.5, NA,   NA,  "PBA: Balanced",
+  3, "PBA", 0.9, NA,   NA,  "PBA: Self focused",
+  4, "WBA", NA,  0.09, 11,  "WBA: Strong conformity",
+  5, "WBA", NA,  0.5,  1,   "WBA: Balanced",
+  6, "WBA", NA,  0.9,  1,   "WBA: Self focused"
+)
+
+recovery_data <- sim_grid |>
+  mutate(
+    agent_data = pmap(list(true_model, w, rho, kappa), function(true_model, w, rho, kappa) {
+      if (true_model == "PBA") {
+        simulate_experiment(pba_agent, agent_args = list(w = w), n_faces = 10)
+      } else {
+        simulate_experiment(wba_agent, agent_args = list(rho = rho, kappa = kappa), n_faces = 10)
+      }
+    })
+  )
+
+  results_list <- list()
+
+  for (i in seq_len(nrow(recovery_data))) {
+    id       <- recovery_data$sim_id[[i]]
+    true_mod <- recovery_data$true_model[[i]]
+    df       <- recovery_data$agent_data[[i]]
+    
+    # True parameters - derive wd/ws from whichever model generated the data
+    if (true_mod == "PBA") {
+      true_wd <- recovery_data$w[[i]]
+      true_ws <- 1 - recovery_data$w[[i]]
+    } else {
+      true_wd <- recovery_data$rho[[i]] * recovery_data$kappa[[i]]
+      true_ws <- (1 - recovery_data$rho[[i]]) * recovery_data$kappa[[i]]
+    }
+    
+    # Stan data comes from the nested agent_data tibble
+    stan_data <- list(
+      N            = nrow(df),
+      FirstRating  = df$FirstRating,
+      SecondRating = df$SecondRating,
+      GroupRating  = df$GroupRating,
+      total        = df$total
+    )
+    
+
+    # Fit models
+    fit_p <- mod_pba$sample(data = stan_data,
+                                     chains = 2, iter_warmup = 500,
+                                     iter_sampling = 500, refresh = 0,
+                                     show_messages = FALSE, save_warmup = TRUE,
+                                     output_dir = "simmodels/temp")
+
+    fit_w <- mod_weighted_reparam$sample(data = stan_data,
+                                 chains = 2, iter_warmup = 500,
+                                 iter_sampling = 500, refresh = 0,
+                                 show_messages = FALSE, save_warmup = TRUE,
+                                 output_dir = "simmodels/temp")
+
+    loo_p <- fit_p$loo()
+    loo_w <- fit_w$loo()
+
+    weights <- loo::loo_model_weights(
+      list(PBA = loo_p, WBA = loo_w),
+      method = "stacking"
+    )
+
+    # Extract posterior means of effective weights (wd, ws) from each model
+    # SBA: deterministic (1, 1)
+    pba_draws <- fit_p$draws(format = "df")
+    wba_draws <- fit_w$draws(format = "df")
+
+    results_list[[i]] <- tibble(
+      sim_id     = id,
+      scenario   = recovery_data$scenario[[i]], 
+      true_model = true_mod,
+      true_wd    = true_wd,
+      true_ws    = true_ws,
+      # Stacking weights
+      weight_PBA = as.numeric(weights["PBA"]),
+      weight_WBA = as.numeric(weights["WBA"]),
+      # Posterior mean effective weights per candidate model
+      pba_wd = mean(pba_draws$w),
+      pba_ws = 1 - mean(pba_draws$w),
+      wba_wd = mean(wba_draws$rho * wba_draws$kappa),
+      wba_ws = mean((1 - wba_draws$rho) * wba_draws$kappa)
+    )
+  }
+
+  recovery_results <- bind_rows(results_list)
+  saveRDS(recovery_results, "simmodels/ch10_model_recovery.rds")
+
+} else {
+  recovery_results <- readRDS("simmodels/ch10_model_recovery.rds")
+}
+```
+
+```{r}
+binary_matrix_scenario <- recovery_results |>
+  pivot_longer(cols = starts_with("weight_"),
+               names_to = "predicted_model", values_to = "weight") |>
+  mutate(predicted_model = str_remove(predicted_model, "weight_")) |>
+  group_by(sim_id, scenario) |>
+  slice_max(weight, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  count(scenario, true_model, predicted_model) |>
+  group_by(scenario) |>
+  mutate(proportion = n / sum(n)) |>
+  ungroup() |>
+  mutate(
+    true_model      = factor(true_model,      levels = c("PBA", "WBA")),
+    predicted_model = factor(predicted_model, levels = c("PBA", "WBA"))
+  ) |>
+  complete(nesting(scenario, true_model), predicted_model, 
+           fill = list(n = 0, proportion = 0))
+
+binary_matrix_scenario |>
+  ggplot(aes(x = predicted_model, y = true_model, fill = proportion)) +
+  geom_tile(color = "white", linewidth = 1) +
+  geom_text(aes(label = scales::percent(proportion, accuracy = 1)),
+            size = 4, fontface = "bold") +
+  scale_fill_viridis_c(option = "mako", direction = -1, limits = c(0, 1)) +
+  scale_y_discrete(limits = rev) +
+  facet_wrap(~ scenario) +
+  labs(
+    title = "Model Recovery: Binary Classification by Scenario",
+    x = "Winning Candidate Model (Max Weight)",
+    y = "True Generating Model",
+    fill = "Win Rate"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+```{r}
+recovery_results |>
+  group_by(scenario, true_model) |>
+  summarise(
+    Recovered_PBA = mean(weight_PBA),
+    Recovered_WBA = mean(weight_WBA),
+    .groups = "drop"
+  ) |>
+  pivot_longer(starts_with("Recovered"),
+               names_to = "fitted_model", values_to = "weight") |>
+  mutate(
+    fitted_model = str_remove(fitted_model, "Recovered_"),
+    fitted_model = factor(fitted_model, levels = c("PBA", "WBA")),
+    true_model   = factor(true_model,   levels = c("PBA", "WBA"))
+  ) |>
+  ggplot(aes(x = fitted_model, y = true_model, fill = weight)) +
+  geom_tile(color = "white", linewidth = 1) +
+  geom_text(aes(label = scales::percent(weight, accuracy = 1)),
+            size = 4, fontface = "bold") +
+  scale_fill_viridis_c(option = "mako", direction = -1, limits = c(0, 1)) +
+  scale_y_discrete(limits = rev) +
+  facet_wrap(~ scenario) +
+  labs(
+    title = "Model Recovery: Predictive Weight Allocation by Scenario",
+    x = "Candidate Model", y = "True Generating Model",
+    fill = "Avg. Weight"
+  ) +
+  theme(panel.grid = element_blank())
 ```
 
 
@@ -872,7 +1040,6 @@ if (regenerate_simulations || !all(file.exists(fit_wba_paths))) {
 
 
 #### Extract per-participant estimates
-
 ```{r}
 # WBA: one rho per participant
 wba_estimates <- imap_dfr(fit_wba_exp, function(fit_exp, pid) {
