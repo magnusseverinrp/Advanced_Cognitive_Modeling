@@ -3,7 +3,6 @@ title: "Script"
 output: html_document
 ---
 
-
 # Setup
 ```{r}
 pacman::p_load(
@@ -18,7 +17,7 @@ pacman::p_load(
   patchwork
 )
 
-main_path <- "/Users/LauraSoerineVoldgaard/Library/Mobile Documents/com~apple~CloudDocs/CogSci/Master/8. semester/ACM/Portfolios/Advanced_Cognitive_Modeling/Assignment03/src"
+main_path <- "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/"
 
 setwd(main_path)
 
@@ -308,6 +307,7 @@ ggplot(sim_pba_all, aes(x = Feedback, y = Change, color = scenario)) +
        x = "Feedback (GroupRating - FirstRating)",
        y = "Change (SecondRating - FirstRating)")
 ```
+
 ### Model Fitting 
 ```{r}
 mod_pba <- cmdstan_model("ProbAgent.stan")
@@ -345,10 +345,6 @@ stan_data_wba <- list(
   balanced = as.list(sim_df_wba_balanced),
   self     = as.list(sim_df_wba_self),
   social   = as.list(sim_df_wba_social)
-)
-
-stan_data_exp <- list(
-  
 )
 ```
 
@@ -391,13 +387,6 @@ if (regenerate_simulations || !all(file.exists(fit_pba_paths))) {
 readRDS("simmodels/fit_pba_self.rds")
 ```
 
-
-
-
-
-
-
-
 #### WBA Sim Model Fitting 
 ```{r}
 fit_wba_paths <- file.path(
@@ -432,8 +421,8 @@ readRDS("simmodels/fit_pba_balanced.rds")
 readRDS("simmodels/fit_pba_self.rds")
 readRDS("simmodels/fit_pba_social.rds")
 ```
-# Checking diagnostics
 
+# Checking diagnostics
 ```{r}
 # Check diagnostics
 check_diagnostics <- function(fit, label) {
@@ -481,7 +470,7 @@ imap(fit_pba, function(fit, scenario) {
 
 # Model Recovery 
 ```{r}
-n_sims <- 100
+n_sims <- 20
 plan(multisession, workers = parallel::detectCores() - 2)
 
 if (regenerate_simulations || !file.exists("simmodels/ch10_model_recovery.rds")) {
@@ -507,6 +496,8 @@ recovery_data <- sim_grid |>
   )
 
   results_list <- list()
+  
+  recovery_data <- recovery_data[rep(seq_len(nrow(recovery_data)), each = 50), ]
 
   for (i in seq_len(nrow(recovery_data))) {
     id       <- recovery_data$sim_id[[i]]
@@ -534,13 +525,13 @@ recovery_data <- sim_grid |>
 
     # Fit models
     fit_p <- mod_pba$sample(data = stan_data,
-                                     chains = 2, iter_warmup = 500,
+                                     chains = 2, iter_warmup = 300,
                                      iter_sampling = 500, refresh = 0,
                                      show_messages = FALSE, save_warmup = TRUE,
                                      output_dir = "simmodels/temp")
 
     fit_w <- mod_weighted_reparam$sample(data = stan_data,
-                                 chains = 2, iter_warmup = 500,
+                                 chains = 2, iter_warmup = 300,
                                  iter_sampling = 500, refresh = 0,
                                  show_messages = FALSE, save_warmup = TRUE,
                                  output_dir = "simmodels/temp")
@@ -554,7 +545,6 @@ recovery_data <- sim_grid |>
     )
 
     # Extract posterior means of effective weights (wd, ws) from each model
-    # SBA: deterministic (1, 1)
     pba_draws <- fit_p$draws(format = "df")
     wba_draws <- fit_w$draws(format = "df")
 
@@ -602,7 +592,7 @@ binary_matrix_scenario <- recovery_results |>
   complete(nesting(scenario, true_model), predicted_model, 
            fill = list(n = 0, proportion = 0))
 
-binary_matrix_scenario |>
+mod_recov_bin <- binary_matrix_scenario |>
   ggplot(aes(x = predicted_model, y = true_model, fill = proportion)) +
   geom_tile(color = "white", linewidth = 1) +
   geom_text(aes(label = scales::percent(proportion, accuracy = 1)),
@@ -617,10 +607,12 @@ binary_matrix_scenario |>
     fill = "Win Rate"
   ) +
   theme(panel.grid = element_blank())
+
+ggsave("mod_recov_bin.png", mod_recov_bin)
 ```
 
 ```{r}
-recovery_results |>
+mod_recov_weight <- recovery_results |>
   group_by(scenario, true_model) |>
   summarise(
     Recovered_PBA = mean(weight_PBA),
@@ -647,6 +639,9 @@ recovery_results |>
     fill = "Avg. Weight"
   ) +
   theme(panel.grid = element_blank())
+
+ggsave("mod_recov_weight.png", mod_recov_weight)
+
 ```
 
 
@@ -851,6 +846,8 @@ print(pba_combined)
 wba_combined <- generate_side_by_side_ppc(fit_wba, stan_data_wba, "WBA")
 print(wba_combined)
 
+ggsave("pba_combined_ppc.png", pba_combined)
+ggsave("wba_combined_ppc.png", wba_combined)
 ```
 
 ## Prior-posterior update checks
@@ -859,7 +856,6 @@ print(wba_combined)
 wba_draws_balanced <- fit_wba$balanced$draws(c("rho", "kappa", "rho_prior", "kappa_prior"), format = "df")
 wba_draws_self     <- fit_wba$self$draws(c("rho", "kappa", "rho_prior", "kappa_prior"), format = "df")
 wba_draws_social   <- fit_wba$social$draws(c("rho", "kappa", "rho_prior", "kappa_prior"), format = "df")
-
 
 # PLOT RHO
 # wba self rho
@@ -889,6 +885,7 @@ p_rho_social <- ggplot(wba_draws_social) +
 p_kappa_self <- ggplot(wba_draws_self) +
   geom_density(aes(x = kappa_prior), fill = "red", colour = "black", alpha = 0.8) +
   geom_density(aes(x = kappa), fill = "blue", colour = "black", alpha = 0.8) +
+  coord_cartesian(ylim = c(0, 0.5)) + 
   geom_vline(xintercept = 1, linetype = "dashed", color = "black", linewidth = 1) +
   labs(title = "WBA kappa - Self", x = "kappa")
 
@@ -896,6 +893,7 @@ p_kappa_self <- ggplot(wba_draws_self) +
 p_kappa_balanced <- ggplot(wba_draws_balanced) +
   geom_density(aes(x = kappa_prior), fill = "red", colour = "black", alpha = 0.8) +
   geom_density(aes(x = kappa), fill = "blue", colour = "black", alpha = 0.8) +
+  coord_cartesian(ylim = c(0, 0.5)) + 
   geom_vline(xintercept = 1, linetype = "dashed", color = "black", linewidth = 1) +
   labs(title = "WBA kappa - Balanced", x = "kappa")
 
@@ -903,7 +901,8 @@ p_kappa_balanced <- ggplot(wba_draws_balanced) +
 p_kappa_social <- ggplot(wba_draws_social) +
   geom_density(aes(x = kappa_prior), fill = "red", colour = "black", alpha = 0.8) +
   geom_density(aes(x = kappa), fill = "blue", colour = "black", alpha = 0.8) +
-  geom_vline(xintercept = 11, linetype = "dashed", color = "black", linewidth = 1) +
+  coord_cartesian(ylim = c(0, 0.5)) + 
+  geom_vline(xintercept = 16, linetype = "dashed", color = "black", linewidth = 1) +
   labs(title = "WBA kappa - Social", x = "kappa")
 
 # Combine
@@ -947,14 +946,6 @@ pba_w_social <- ggplot(pba_draws_social) +
 
 ```
 
-
-
-
-
-
-
-
-
 #### Experimental model fitting 
 ##### Exp Data Prep
 ```{r}
@@ -964,7 +955,7 @@ cogsci_df <- read_csv("../data/cogsci_clean.csv")
 #Fix Feedback = NA issue
 ```{r}
 # Removing NA's
-cogsci_df     <- cogsci_df %>% filter(!is.na(Feedback))
+cogsci_df <- cogsci_df %>% filter(!is.na(Feedback))
 ```
 
 ```{r}
@@ -984,6 +975,76 @@ stan_data_exp <- map(cogsci_by_participant, function(df_p) {
     total  = rep(8L, nrow(df_p))
   )
 })
+```
+
+### CogSci data exploration
+```{r}
+
+exploration_ratings_all_participants <- cogsci_df %>%
+  pivot_longer(cols = c(FirstRating, SecondRating), 
+               names_to = "Type", 
+               values_to = "Value") %>%
+  ggplot(aes(x = Value, fill = Type, color = Type)) +
+  geom_histogram(position = "dodge") +
+  scale_fill_manual(values = c("FirstRating" = "darkcyan", "SecondRating" = "coral")) +
+  scale_color_manual(values = c("FirstRating" = "darkcyan", "SecondRating" = "coral")) +
+  facet_wrap(~ID) +
+  labs(
+    title = "Ratings across all participants",
+    x = "Rating",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+exploration_ratings_all_participants
+ggsave("exploration_ratings_all_participants.jpg", plot = exploration_ratings_all_participants, width = 12, height = 10, dpi = 300)
+
+
+
+# change as function of group feedback (all participants)
+exploration_change_all_participants <- ggplot(cogsci_df, aes(x = Feedback, y = Change)) +
+  geom_point(alpha = 0.5, color = "darkcyan") +
+  geom_smooth(method = "lm", se = TRUE, color = "darkcyan", fill = "darkcyan") +
+  facet_wrap(~ID) +
+  labs(
+    title = "Change as a function of Group Feedback (all participants)",
+    x = "Feedback (GroupRating - FirstRating)",
+    y = "Change (SecondRating - FirstRating)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+
+# change as function of group feedback (all participants)
+exploration_change_all_participants <- ggplot(cogsci_df, aes(x = Feedback, y = Change)) +
+  geom_point(alpha = 0.5, color = "darkcyan") +
+  geom_smooth(method = "lm", se = TRUE, color = "darkcyan", fill = "darkcyan") +
+  facet_wrap(~ID) +
+  labs(
+    title = "Change as a function of Group Feedback (all participants)",
+    x = "Feedback (GroupRating - FirstRating)",
+    y = "Change (SecondRating - FirstRating)"
+  ) +
+  theme_minimal()
+
+exploration_change_all_participants
+#ggsave("exploration_change_all_participants.jpg", plot = exploration_change_all_participants, width = 12, height = 10, dpi = 300)
+```
+
+```{r}
+# change as function of group feedback (one participant)
+cogsci_df %>%
+  filter(ID == 10) %>%
+  ggplot(aes(x = Feedback, y = Change)) +
+  geom_point(alpha = 0.5, color = "darkcyan") +
+  geom_smooth(method = "lm", se = TRUE, color = "darkcyan", fill = "darkcyan") +
+  labs(
+    title = "Participant 1: Change as a function of Group Feedback",
+    x = "Feedback (GroupRating - FirstRating)",
+    y = "Change (SecondRating - FirstRating)"
+  ) +
+  theme_minimal()
 ```
 
 
@@ -1025,8 +1086,8 @@ if (regenerate_simulations || !all(file.exists(fit_wba_paths))) {
     fit_exp <- mod_weighted_reparam$sample(
       data          = data,
       chains        = 2,
-      iter_warmup   = 500,
-      iter_sampling = 2000,
+      iter_warmup   = 200,
+      iter_sampling = 1000,
       #fixed_param   = TRUE,
       refresh       = 0
     )
@@ -1140,11 +1201,21 @@ p_kappa <- wba_estimates %>%
 
 (p_rho | p_kappa )/ p_w
 ```
+### Plotting kappa with outlier removed
+```{r}
+# WBA: kappa per participant without the five outliers (1=~80 and 4 < 3 million...)
+p_kappa <- wba_estimates %>%
+  filter(variable == "kappa", mean < 60) %>%
+  ggplot(aes(x = reorder(ID, mean), y = mean)) +
+  geom_col(fill = "coral") +
+  coord_cartesian(xlim = c(0, 40)) +
+  #geom_hline(aes(yintercept = mean(mean)), linewidth = 0.8) +
+  labs(title = "WBA: kappa", x = "Participants", y = "kappa") +
+  theme_bw() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
 
-
-
-
-
+p_kappa
+```
 
 
 # Checking diagnostics experimental
@@ -1180,9 +1251,16 @@ imap(fit_wba_exp, function(fit_exp, scenario) {
     theme_classic() +
     ggtitle(paste("WBA Trace Plot -", scenario))
 
- # print(p_trace)
+    ggsave(
+    filename = paste0("trace_wba_", scenario, ".png"),
+    plot = p_trace,
+    width = 10, height = 6, dpi = 300
+  )
 })
+```
 
+
+```{r}
 # PBA trace plots - cogsci dataset
 imap(fit_pba_exp, function(fit_exp, scenario) {
   draws_df <- as_draws_df(fit_exp$draws())
@@ -1191,16 +1269,9 @@ imap(fit_pba_exp, function(fit_exp, scenario) {
     theme_classic() +
     ggtitle(paste("PBA Trace Plot -", scenario))
   
-#  print(p_trace)
+  #print(p_trace)
 })
 ```
-
-
-
-
-
-
-
 
 ## Prior-posterior update checks experimental
 ```{r}
@@ -1238,28 +1309,6 @@ invisible(imap(fit_pba_exp, function(fit, pid) {
 }))
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ## Prior and Posterior predictive checks
 
 ```{r}
@@ -1283,8 +1332,6 @@ extract_predictive_data_exp <- function(fit_exp, stan_data_exp, scenario_name, t
   )
 }
 
-
-
 plot_predictive_check <- function(data, title, subtitle) {
   data %>%
     ggplot(aes(x = value, fill = type, colour = type)) +
@@ -1301,7 +1348,6 @@ plot_predictive_check <- function(data, title, subtitle) {
     theme_minimal() +
     theme(plot.title = element_text(size = 9))
 }
-
 ```
 
 
@@ -1357,19 +1403,165 @@ cat("=== Proportional Bayesian Agent (PBA) Predictive Checks ===\n")
 
 
 ```{r}
-pba_combined_exp <- generate_side_by_side_ppc_exp(fit_pba_exp, stan_data_exp, "PBA")
-print(pba_combined_exp)
+pid <- "40"
 
-wba_combined_exp <- generate_side_by_side_ppc_exp(fit_wba_exp, stan_data_exp, "WBA")
-print(wba_combined_exp)
+pba_single <- generate_side_by_side_ppc_exp(
+  fit_list   = fit_pba_exp[pid],
+  data_list  = stan_data_exp[pid],
+  model_title = paste("PBA - Participant", pid)
+)
+print(pba_single)
 
-#ggsave("pba_combined_exp.jpg", plot = pba_combined_exp, width = 12, height = 10, dpi = 300)
+wba_single <- generate_side_by_side_ppc_exp(
+  fit_list   = fit_wba_exp[pid],
+  data_list  = stan_data_exp[pid],
+  model_title = paste("WBA - Participant", pid)
+)
+print(wba_single)
+
+ppc_combined <- pba_single / wba_single
+
+ggsave(
+  filename = "id40_ppc_plot.png",
+  plot = ppc_combined
+)
+```
+
+
+```{r}
+# Get unique participant IDs from the data
+participant_ids <- unique(cogsci_df$ID)
+
+agent_loo <- map(participant_ids, function(id) {
+  
+  # Load both model fits for this participant
+  fit_pba <- readRDS(paste0("simmodels/fit_pba_", id, ".rds"))
+  fit_wba <- readRDS(paste0("simmodels/fit_wba_", id, ".rds"))
+  
+  # Compute LOO for each model
+  # This uses the log_lik vector declared in generated quantities
+  loo_pba <- fit_pba$loo()
+  loo_wba <- fit_wba$loo()
+  
+  # Sum pointwise ELPD across all trials to get one number per agent per model
+  # Higher = better out-of-sample predictive accuracy
+  tibble(
+    agent_id   = id,
+    elpd_PBA   = sum(loo_pba$pointwise[, "elpd_loo"]),
+    elpd_WBA   = sum(loo_wba$pointwise[, "elpd_loo"]),
+    # Winning model = whichever has higher ELPD for this agent
+    best_model = if_else(elpd_PBA > elpd_WBA, "PBA", "WBA")
+  )
+  
+}) |> list_rbind()
+```
+
+#### Another model comparison
+```{r}
+# Pool all trial-level log_lik across participants into one matrix
+# by stacking rows (trials) from each participant
+log_lik_pba <- do.call(rbind, map(fit_pba_exp, ~ .x$draws("log_lik", format = "matrix")))
+log_lik_wba <- do.call(rbind, map(fit_wba_exp, ~ .x$draws("log_lik", format = "matrix")))
+
+# Compute population-level LOO
+loo_pba <- loo(log_lik_pba)
+loo_wba <- loo(log_lik_wba)
+
+# Population-level comparison
+cat("=== Population-Level Comparison (Experimental Data) ===\n")
+print(loo::loo_compare(list("PBA" = loo_pba, "WBA" = loo_wba)))
+
+# Stacking weights
+cat("\nStacking weights:\n")
+print(round(loo_model_weights(list("PBA" = loo_pba, "WBA" = loo_wba), method = "stacking"), 3))
 
 ```
 
 
+```{r}
+# Pool all trial-level log_lik across participants into one matrix
+log_lik_pba <- do.call(rbind, map(fit_pba_exp, ~ .x$draws("log_lik", format = "matrix")))
+log_lik_wba <- do.call(rbind, map(fit_wba_exp, ~ .x$draws("log_lik", format = "matrix")))
+
+# Compute population-level LOO
+loo_pba <- loo(log_lik_pba)
+loo_wba <- loo(log_lik_wba)
+
+# Population-level comparison
+cat("=== Population-Level Comparison (Experimental Data) ===\n")
+print(loo::loo_compare(list("PBA" = loo_pba, "WBA" = loo_wba)))
+
+# Stacking weights
+cat("\nStacking weights:\n")
+print(round(loo::loo_model_weights(list("PBA" = loo_pba, "WBA" = loo_wba), method = "stacking"), 3))
+```
+
+```{r}
+agent_elpd <- imap_dfr(fit_pba_exp, function(fit_pba, pid) {
+  fit_wba <- fit_wba_exp[[pid]]
+  
+  # Get pointwise ELPD for each model for this participant
+  loo_pba <- fit_pba$loo()
+  loo_wba <- fit_wba$loo()
+  
+  tibble(
+    agent_id = as.integer(pid),
+    elpd_PBA = sum(loo_pba$pointwise[, "elpd_loo"]),
+    elpd_WBA = sum(loo_wba$pointwise[, "elpd_loo"])
+  )
+}) |>
+  mutate(
+    best_model     = if_else(elpd_PBA > elpd_WBA, "PBA", "WBA"),
+    # ELPD advantage of WBA over PBA (positive = WBA better)
+    elpd_advantage = elpd_WBA - elpd_PBA
+  )
+
+```
 
 
+```{r}
+# Left: per-agent ELPD advantage
+p_agent_advantage <- ggplot(agent_elpd,
+       aes(x = reorder(agent_id, elpd_advantage),
+           y = elpd_advantage,
+           fill = elpd_advantage > 0)) +
+  geom_col(alpha = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
+  scale_fill_manual(values = c("TRUE" = "#984ea3", "FALSE" = "#4daf4a"),
+                    labels = c("TRUE" = "WBA better", "FALSE" = "PBA better")) +
+  coord_flip() +
+  labs(
+    title    = "Per-Agent ELPD: WBA vs. PBA",
+    subtitle = "Positive = WBA predicts better. Negative = PBA predicts better.",
+    x        = "Participant (sorted by advantage)",
+    y        = "ELPD Advantage (WBA − PBA)",
+    fill     = "Better Model"
+  ) +
+  theme(
+    axis.text.y  = element_text(size = 6),
+    legend.position = "bottom"
+  )
 
+# Right: scatter of per-agent PBA vs WBA ELPD
+p_agent_scatter <- ggplot(agent_elpd,
+       aes(x = elpd_PBA, y = elpd_WBA,
+           shape = best_model, colour = best_model)) +
+  geom_abline(linetype = "dashed", colour = "grey50") +
+  geom_point(size = 3, alpha = 0.8) +
+  scale_colour_manual(values = c("PBA" = "#4daf4a", "WBA" = "#984ea3")) +
+  scale_shape_manual(values = c("PBA" = 16, "WBA" = 17)) +
+  labs(
+    title    = "Agent-Level LOO: PBA vs. WBA",
+    subtitle = "Points above diagonal: WBA predicts better. Shape = winning model.",
+    x        = "Agent ELPD under PBA",
+    y        = "Agent ELPD under WBA",
+    colour   = "Best Model", shape = "Best Model"
+  ) +
+  theme(legend.position = "bottom")
 
+#ggsave("mod_comp_adv.png", p_agent_advantage)
+#ggsave("mod_comp_scatter.png", p_agent_scatter)
+
+p_agent_advantage | p_agent_scatter
+```
 

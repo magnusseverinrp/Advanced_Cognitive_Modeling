@@ -15,6 +15,7 @@ parameters {
 }
 
 model {
+  for (i in 1:N) {
   vector[N] alpha_post;
   vector[N] beta_post;
   
@@ -25,8 +26,9 @@ model {
   beta_post  = 0.5 + w * (to_vector(total) - to_vector(FirstRating)) 
           + (1.0 - w) * (to_vector(total) - to_vector(GroupRating));
                              
-  target += beta_binomial_lpmf(SecondRating | 8, alpha_post, beta_post);
+  target += beta_binomial_lpmf(SecondRating[i] - 1 | 7, alpha_post, beta_post);
   // theta ~ beta_binomial(N_PSEUDO, alpha_post, beta_post);
+  }
 }
 
 
@@ -42,12 +44,12 @@ generated quantities {
     real beta_post  = 0.5 + w * (total[i] - FirstRating[i])
                           + (1.0 - w) * (total[i] - GroupRating[i]);
 
-    log_lik[i]        = beta_binomial_lpmf(SecondRating[i] | 7, alpha_post, beta_post)+1;
-    posterior_pred[i] = beta_binomial_rng(7, alpha_post, beta_post)+1;
+    log_lik[i]        = beta_binomial_lpmf(SecondRating[i]-1 | 7, alpha_post, beta_post);
+    posterior_pred[i] = 1+beta_binomial_rng(7, alpha_post, beta_post);
 
     real ap = 0.5 + w_prior * FirstRating[i] + (1.0 - w_prior) * GroupRating[i];
     real bp = 0.5 + w_prior * (total[i] - FirstRating[i])
                   + (1.0 - w_prior) * (total[i] - GroupRating[i]);
-    prior_pred[i] = beta_binomial_rng(7, ap, bp)+1;
+    prior_pred[i] = 1+beta_binomial_rng(7, ap, bp);
   }
 }
