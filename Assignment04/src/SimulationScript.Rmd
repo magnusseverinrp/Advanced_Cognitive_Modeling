@@ -88,6 +88,67 @@ sim_grid <- bind_rows(
 sim_grid <- sim_grid |> filter(session == 2)
 ```
 
+```{r}
+# Generative GCM model function.
+gcm_simulate <- function(w,            # attention weights (sums to 1)
+                         c,            # sensitivity (natural scale, strictly positive) based on distance
+                         bias,         # response bias towards category 1
+                         features,      # matrix of stimulus features (trials x features)
+                         danger,       # true category labels (0 or 1)
+                         quiet = TRUE) {
+  
+  obs       <- as.matrix(features)
+  ntrials   <- nrow(obs)
+  nfeatures <- ncol(obs)
+
+  
+  prob_dan1    <- numeric(ntrials) # Probability of responding "dangerous" (category 1) on each trial
+  sim_response <- numeric(ntrials) # Simulated binary responses (0 or 1) based on prob_dan1
+
+  memory_obs <- matrix(NA_real_, nrow = 0, ncol = nfeatures) # Memory of observed stimuli (starts empty)
+  memory_dan <- numeric(0) # Memory of observed categories (starts empty)
+
+  # Loop through each trial, simulating responses based on the GCM model
+  for (i in seq_len(ntrials)) {
+    if (!quiet && i %% 20 == 0) cat("Simulating trial:", i, "\n")
+
+    current_stim <- as.numeric(obs[i, ])
+    n_mem        <- nrow(memory_obs)
+    has_dan0     <- any(memory_dan == 0)
+    has_dan1     <- any(memory_dan == 1)
+
+    # If no memory or only one category in memory, rely on bias. Otherwise, compute similarity-based probs.
+    if (n_mem == 0 || !has_dan0 || !has_dan1) {
+      prob_dan1[i] <- bias
+    } else {
+      sims <- vapply(seq_len(n_mem), function(e) {
+        similarity(distance(current_stim, memory_obs[e, ], w), c)
+      }, numeric(1))
+
+      # Mean similarity per category — removes category-frequency bias.
+      m1  <- mean(sims[memory_dan == 1])
+      m0  <- mean(sims[memory_dan == 0])
+      num <- bias * m1
+      den <- num + (1 - bias) * m0
+
+      # Avoid division by zero and ensure probabilities are in (0,1)
+      prob_dan1[i] <- if (den > 1e-9) num / den else bias
+      prob_dan1[i] <- pmax(1e-9, pmin(1 - 1e-9, prob_dan1[i]))
+    }
+
+    # Simulate a binary response based on the computed probability of category 1 (dangerous)
+    sim_response[i] <- rbinom(1, 1, prob_dan1[i])
+
+    # Update memory with the current stimulus and its category label
+    memory_obs <- rbind(memory_obs, current_stim)
+    memory_dan <- c(memory_dan, dan_feedback[i])
+  }
+
+  # Return a tibble with the prob of a "dangerous" response & the simulated responses for each trial
+  tibble(prob_dan1 = prob_dan1, sim_response = sim_response)
+}
+```
+
 
 # Experimental Data 
 ```{r}
