@@ -16,7 +16,7 @@ pacman::p_load(
   patchwork
 )
 
-main_path <- "/Users/mattie/Desktop/Masters/ACM/AdvancedCognitiveModelling/Advanced_Cognitive_Modeling/Assignment04/src/"
+main_path <- "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment04/"
 
 setwd(main_path)
 
@@ -44,32 +44,6 @@ library(tidyverse)
 set.seed(42)
 ```
 
-
-```{r}
-# create 32 stimuli which are 5-dimensional vectors of binary values. Each stimuli should be unique in their binary constallation of the 5 features.
-
-n_stimuli <- 32
-
-stimuli <- expand.grid(
-  feature1 = c(0, 1), # has spots
-  feature2 = c(0, 1), # slim legs
-  feature3 = c(0, 1), # eyes on stalks
-  feature4 = c(0, 1), # arms are up
-  feature5 = c(0, 1) # green colour
-)
-```
-
-```{r}
-# Add a stimulus ID for easier reference and two extra binary columns called danger and nutrition
-
-stimuli <- stimuli %>% 
-  mutate(
-    stimulus_id = row_number(),
-    danger = sample(0:1, n_stimuli, replace = TRUE),
-    nutrition = sample(0:1, n_stimuli, replace = TRUE)
-  )
-```
-
 Responses can be 1-4
 Response 1 = Not dangerous and not nutritious
 Response 2 = Not dangerous and nutritious
@@ -78,13 +52,39 @@ Response 4 = Dangerous and nutritious
 
 BUT the associations between feature and category varies over session...
 
-Session 01:
-Danger = alien has spots (feature 1) AND eyes on Stalks (feature 3)
+In the first session: danger depends on the alien having spots AND eyes on stalks (feature 1 AND feature 3 both being 1)
 
-Session 02:
-Danger = arms being up (feature 4)
+In the second session: danger depends on arms being up (feature 4 being 1)
 
-Session 03:
-Danger = arms being up (feature 4) AND green colour (feature 05)
+In the third session: danger depends on arms up and green color (feature 4 and 5 being both 1)
 
+```{r}
+# Generate all 32 combinations of 5 binary features
+features <- expand.grid(
+  feature1 = 0:1,  # spots
+  feature2 = 0:1,  # slim legs
+  feature3 = 0:1,  # eyes on stalks
+  feature4 = 0:1,  # arms up
+  feature5 = 0:1   # green color
+)
 
+# Replicate for 3 sessions 
+data <- bind_rows(
+  mutate(features, session = 1),
+  mutate(features, session = 2),
+  mutate(features, session = 3)
+) %>%
+  mutate(
+    danger = case_when(
+      session == 1 ~ as.integer(feature1 == 1 & feature3 == 1),  # spots AND eyes on stalks
+      session == 2 ~ as.integer(feature4 == 1),                   # arms up
+      session == 3 ~ as.integer(feature4 == 1 & feature5 == 1)    # arms up AND green
+    )
+  ) %>%
+  select(session, feature1, feature2, feature3, feature4, feature5, danger)
+```
+
+# Experimental Data 
+```{r}
+exp_data <- read_csv(glue::glue("{main_path}data/AlienData.txt")) 
+```
