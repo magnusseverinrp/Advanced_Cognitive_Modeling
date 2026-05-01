@@ -101,9 +101,10 @@ gcm_simulate <- function(w,            # attention weights (sums to 1)
   ntrials   <- nrow(obs)
   nfeatures <- ncol(obs)
 
-  
-  prob_dan1    <- numeric(ntrials) # Probability of responding "dangerous" (category 1) on each trial
-  sim_response <- numeric(ntrials) # Simulated binary responses (0 or 1) based on prob_dan1
+
+  # create empty vectors (and matrices) to store results  
+  prob_dan1    <- numeric(ntrials) # will be probability of responding "dangerous" on each trial
+  sim_response <- numeric(ntrials) # will be simulated binary responses (0 or 1) based on prob_dan1
 
   memory_obs <- matrix(NA_real_, nrow = 0, ncol = nfeatures) # Memory of observed stimuli (starts empty)
   memory_dan <- numeric(0) # Memory of observed categories (starts empty)
@@ -131,9 +132,9 @@ gcm_simulate <- function(w,            # attention weights (sums to 1)
       num <- bias * m1
       den <- num + (1 - bias) * m0
 
-      # Avoid division by zero and ensure probabilities are in (0,1)
-      prob_dan1[i] <- if (den > 1e-9) num / den else bias
-      prob_dan1[i] <- pmax(1e-9, pmin(1 - 1e-9, prob_dan1[i]))
+      prob_dan1[i] <- if (den > 1e-9) num / den else bias # avoid division by 0
+      prob_dan1[i] <- pmax(1e-9, pmin(1 - 1e-9, prob_dan1[i])) # Ensure probabilities are in (0,1)
+
     }
 
     # Simulate a binary response based on the computed probability of category 1 (dangerous)
@@ -141,7 +142,7 @@ gcm_simulate <- function(w,            # attention weights (sums to 1)
 
     # Update memory with the current stimulus and its category label
     memory_obs <- rbind(memory_obs, current_stim)
-    memory_dan <- c(memory_dan, dan_feedback[i])
+    memory_dan <- c(memory_dan, danger[i])
   }
 
   # Return a tibble with the prob of a "dangerous" response & the simulated responses for each trial
@@ -149,6 +150,64 @@ gcm_simulate <- function(w,            # attention weights (sums to 1)
 }
 ```
 
+We are using 3 blocks for each session and subject. The stimuli are shuffled for each block.
+```{r}
+# per subject schedule generation
+make_subject_schedule <- function(stimulus_info, n_blocks, seed) {
+  set.seed(seed)
+  n_stim <- nrow(stimulus_info) # number of unique stimuli (32)
+
+  # Create a random sequence of stimuli for each block, ensuring all stimuli are presented in each block
+  sequence <- unlist(lapply(seq_len(n_blocks), function(b) {
+    sample(stimulus_info$stimulus, n_stim, replace = FALSE)
+  }))
+
+  tibble(
+    trial_within_subject = seq_along(sequence), # trial number for the subject
+    block                = rep(seq_len(n_blocks), each = n_stim), # block number
+    stimulus_id          = sequence # the stimulus presented on each trial (randomized within blocks)
+  ) |>
+    left_join(stimulus_info, by = c("stimulus_id" = "stimulus")) |> # add stimulus features and category feedback
+    rename(danger_feedback = danger) |> # rename the true category label for clarity
+    dplyr::select(trial_within_subject, block, stimulus_id, # select and order relevant columns
+                  height, position, category_feedback)
+}
+```
+
+
+```{r}
+# Simulate behaviour with GCM
+
+simulate_gcm_agent <- function(agent_id, w_true, c_true, bias_true,
+                               stimulus_info, n_blocks, subject_seed) {
+  
+  schedule <- make_subject_schedule(stimulus_info, n_blocks, seed = subject_seed) # generate the stimulus schedule for this agent
+  obs      <- schedule |> dplyr::select(height, position) # extract the stimulus features for each trial
+  feedback <- schedule$category_feedback # extract the true category labels for each trial
+
+  # apply GCM simulation to generate responses based on the true parameters and the stimulus schedule
+  sim_results <- gcm_simulate(
+    w = w_true, c = c_true, bias = bias_true,
+    obs = obs, cat_feedback = feedback, quiet = TRUE
+  )
+
+  schedule |>
+    mutate(
+      agent_id     = agent_id,
+      w1_true      = w_true[1],
+      w2_true      = w_true[2],
+      c_true       = c_true,
+      log_c_true   = log(c_true),
+      bias_true    = bias_true,
+      prob_cat1    = sim_results$prob_cat1,
+      sim_response = sim_results$sim_response,
+      correct      = as.integer(category_feedback == sim_response)
+    ) |>
+    group_by(agent_id) |>
+    mutate(performance = cumsum(correct) / row_number()) |>
+    ungroup()
+}
+```
 
 # Experimental Data 
 ```{r}
