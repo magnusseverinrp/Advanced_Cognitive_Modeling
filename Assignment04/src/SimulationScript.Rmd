@@ -170,13 +170,13 @@ make_subject_schedule <- function(stimulus_info, n_blocks, seed) {
     left_join(stimulus_info, by = c("stimulus_id" = "stimulus")) |> # add stimulus features and category feedback
     rename(danger_feedback = danger) |> # rename the true category label for clarity
     dplyr::select(trial_within_subject, block, stimulus_id, # select and order relevant columns
-                  height, position, category_feedback)
+                  feature1, feature2, feature3, feature4, feature5 danger_feedback)
 }
 ```
 
 
 ```{r}
-# Simulate behaviour with GCM
+# Simulate behavior with GCM
 
 simulate_gcm_agent <- function(agent_id, w_true, c_true, bias_true,
                                stimulus_info, n_blocks, subject_seed) {
