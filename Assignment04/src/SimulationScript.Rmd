@@ -43,4 +43,32 @@ regenerate_simulations <- TRUE
 library(tidyverse)
 set.seed(42)
 ```
+
+
+```{r}
+# create 32 stimuli which are 5-dimensional vectors of binary values. Each stimuli should be unique in their binary constallation of the 5 features.
+
+n_stimuli <- 32
+
+stimuli <- expand.grid(
+  feature1 = c(0, 1),
+  feature2 = c(0, 1),
+  feature3 = c(0, 1),
+  feature4 = c(0, 1),
+  feature5 = c(0, 1)
+)
 ```
+
+```{r}
+# Add a stimulus ID for easier reference and two extra binary columns called danger and nutrition
+
+stimuli <- stimuli %>% 
+  mutate(
+    stimulus_id = row_number(),
+    danger = sample(0:1, n_stimuli, replace = TRUE),
+    nutrition = sample(0:1, n_stimuli, replace = TRUE)
+  )
+```
+
+Responses can be 1-4
+Response 1 = Not dangerous and not nutritious
