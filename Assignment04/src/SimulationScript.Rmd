@@ -13,7 +13,8 @@ pacman::p_load(
   bayesplot,    # Plotting MCMC
   furrr,        # Parallel processing
   future,        # Future backend
-  patchwork
+  patchwork,
+  hexbin
 )
 
 main_path <- "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment04/"
@@ -319,7 +320,7 @@ mod_gcm_single <- cmdstan_model(stan_file_gcm_single)
 ```{r}
 agent_to_fit <- sim_data |>
   filter(
-    round(w4_true, 1) == 1.0,
+    round(w4_true, 1) == 0.6,
     abs(log_c_true - log(2.0)) == min(abs(log_c_true - log(2.0)))
   ) |>
   filter(agent_id == min(agent_id)) |>
@@ -383,31 +384,37 @@ readRDS(glue::glue("{main_path}src/stan/ch12_gcm_single_fit.rds"))
 
 
 MODEL FIT - MCMC Diagnostics
-```{r}
-if (!is.null(fit_gcm_single)) {
-  diag_tbl <- diagnostic_summary_table(
-    fit_gcm_single,
-    params = c("w[1]", "w[2]", "w[3]", "w[4]", "w[5]", "log_c", "c", "bias")
-  )
-  print(diag_tbl)
 
-  if (!all(diag_tbl$pass)) {
-    warning("Diagnostic battery has failures — interpret posteriors with caution.")
-  }
-
-  bayesplot::mcmc_trace(
+{r}
+# Trace and Rank plots
+bayesplot::mcmc_trace(
     fit_gcm_single$draws(c("log_c", "w[4]", "bias")),
     facet_args = list(ncol = 1)
   )
 
-  bayesplot::mcmc_rank_overlay(
+bayesplot::mcmc_rank_overlay(
     fit_gcm_single$draws(c("log_c", "w[4]", "bias"))
   )
-}
+
+
+
+# Check for Divergent Transitions - Chain level diagnostics
+```{r}
+fit_gcm_single$diagnostic_summary()
 ```
 
+Here we can see that no chains diverged, and the minimum E-BFMI (Energy Bayesian Fraction of Missing Information) > 0.3, which is good. The sampler never hit the maximum allowed tree depth during sampling which means that it stopped naturally and it is working efficiently.
 
 
+# Check R-hat, EBFMI and ESS metrics
+```{r}
+fit_summary <- fit_gcm_single$summary(variables = c("w[1]", "w[2]", "w[3]", "w[4]", "w[5]", "log_c", "c", "bias"))
+fit_summary <- as.data.frame(fit_summary)
+
+print(fit_summary %>% select(variable, mean, rhat, ess_bulk, ess_tail))
+```
+
+The R-hat values are all < 1.1, which is good. And the ess bulk and tail are both > 1000, meaning there are effective samples in the center and tails of the distribution. Overall, the MCMC diagnostics battery shows good convergence and  sampling.
 
 ## Model Checks - single subject
 
@@ -488,7 +495,7 @@ ggplot(prior_pred_summary, aes(x = trial)) +
 POSTERIOR PREDICTIVE CHECK
 ```{r}
 if (!is.null(fit_gcm_single)) {
-  prob_draws <- fit_gcm_single$draws("prob_dan1", format = "matrix")
+  prob_draws <- fit_gcm_single$draws("prob_danger1", format = "matrix")
   n_draws    <- nrow(prob_draws)
   n_trials   <- ncol(prob_draws)
 
@@ -543,7 +550,7 @@ if (!is.null(fit_gcm_single)) {
   n_prior <- 4000
   prior_df <- tibble(
     `w[4]` = runif(n_prior),
-    log_c  = rnorm(n_prior, LOG_C_PRIOR_MEAN, LOG_C_PRIOR_SD),
+    log_c  = rnorm(n_prior, log(2), 1),
     c      = exp(log_c),
     bias   = rbeta(n_prior, 1, 1)
   )
