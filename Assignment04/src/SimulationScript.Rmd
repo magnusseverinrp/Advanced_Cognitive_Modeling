@@ -16,9 +16,9 @@ pacman::p_load(
   patchwork
 )
 
-main_path <- "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment04/"
+main_path <- "/Users/mattie/Desktop/Masters/ACM/AdvancedCognitiveModelling/Advanced_Cognitive_Modeling/Assignment04/"
 
-setwd(main_path)
+knitr::opts_knit$set(root.dir = main_path)
 
 ```
 
@@ -86,8 +86,30 @@ sim_grid <- bind_rows(
 
 ```{r}
 sim_grid <- sim_grid |> filter(session == 2)
+# mutate an stimulus id column and place first in list
+sim_grid <- sim_grid %>% 
+  mutate(ID = row_number()) %>% 
+  select(ID, everything())
 ```
 
+SIMILARITY FUNCITON
+```{r}
+# Exponential similarity kernel
+similarity <- function(dist_val, c) {
+  exp(-c * dist_val)
+}
+```
+
+DISTANCE FUNCTION
+```{r}
+# City-block distance (r = 1), attention-weighted
+distance <- function(vect1, vect2, w) {
+  sum(w * abs(vect1 - vect2))
+}
+```
+
+
+GENERATIVE GCM MODEL FUNCTION
 ```{r}
 # Generative GCM model function.
 gcm_simulate <- function(w,            # attention weights (sums to 1)
@@ -151,15 +173,25 @@ gcm_simulate <- function(w,            # attention weights (sums to 1)
 ```
 
 We are using 3 blocks for each session and subject. The stimuli are shuffled for each block.
+
+```{r}
+# Experiment design parameters
+n_blocks <- 3
+n_stim_per_block <- nrow(features)
+total_trials <- n_blocks * n_stim_per_block
+```
+
+
+PER SUBJECT SCHEDULE GENERATION
 ```{r}
 # per subject schedule generation
-make_subject_schedule <- function(stimulus_info, n_blocks, seed) {
+make_subject_schedule <- function(sim_grid, n_blocks, seed) {
   set.seed(seed)
-  n_stim <- nrow(stimulus_info) # number of unique stimuli (32)
+  n_stim <- nrow(sim_grid) # number of unique stimuli (32)
 
   # Create a random sequence of stimuli for each block, ensuring all stimuli are presented in each block
   sequence <- unlist(lapply(seq_len(n_blocks), function(b) {
-    sample(stimulus_info$stimulus, n_stim, replace = FALSE)
+    sample(sim_grid$ID, n_stim, replace = FALSE)
   }))
 
   tibble(
@@ -167,28 +199,32 @@ make_subject_schedule <- function(stimulus_info, n_blocks, seed) {
     block                = rep(seq_len(n_blocks), each = n_stim), # block number
     stimulus_id          = sequence # the stimulus presented on each trial (randomized within blocks)
   ) |>
-    left_join(stimulus_info, by = c("stimulus_id" = "stimulus")) |> # add stimulus features and category feedback
+    left_join(sim_grid, by = c("stimulus_id" = "ID")) |> # add stimulus features and category feedback
     rename(danger_feedback = danger) |> # rename the true category label for clarity
     dplyr::select(trial_within_subject, block, stimulus_id, # select and order relevant columns
-                  feature1, feature2, feature3, feature4, feature5 danger_feedback)
+                  feature1, feature2, feature3, feature4, feature5, danger_feedback)
 }
 ```
 
-
+SIMULATING BEHAVIOUR WITH GCM
 ```{r}
 # Simulate behavior with GCM
 
 simulate_gcm_agent <- function(agent_id, w_true, c_true, bias_true,
-                               stimulus_info, n_blocks, subject_seed) {
+                               sim_grid, n_blocks, subject_seed) {
   
-  schedule <- make_subject_schedule(stimulus_info, n_blocks, seed = subject_seed) # generate the stimulus schedule for this agent
-  obs      <- schedule |> dplyr::select(height, position) # extract the stimulus features for each trial
-  feedback <- schedule$category_feedback # extract the true category labels for each trial
+  schedule <- make_subject_schedule(sim_grid, n_blocks, seed = subject_seed) # generate the stimulus schedule for this agent
+  obs      <- schedule |> dplyr::select(feature1, feature2, feature3, feature4, feature5) # extract the stimulus features for each trial
+  feedback <- schedule$danger_feedback # extract the true danger labels for each trial
 
   # apply GCM simulation to generate responses based on the true parameters and the stimulus schedule
   sim_results <- gcm_simulate(
-    w = w_true, c = c_true, bias = bias_true,
-    obs = obs, cat_feedback = feedback, quiet = TRUE
+    w = w_true, 
+    c = c_true, 
+    bias = bias_true,
+    features = obs,
+    danger = feedback, 
+    quiet = TRUE
   )
 
   schedule |>
@@ -199,15 +235,67 @@ simulate_gcm_agent <- function(agent_id, w_true, c_true, bias_true,
       c_true       = c_true,
       log_c_true   = log(c_true),
       bias_true    = bias_true,
-      prob_cat1    = sim_results$prob_cat1,
+      prob_dan1    = sim_results$prob_dan1,
       sim_response = sim_results$sim_response,
-      correct      = as.integer(category_feedback == sim_response)
+      correct      = as.integer(danger_feedback == sim_response)
     ) |>
     group_by(agent_id) |>
     mutate(performance = cumsum(correct) / row_number()) |>
     ungroup()
 }
 ```
+
+TESTING DIFFERENT PARAMETER SETTINGS
+```{r}
+param_grid <- expand_grid(
+  w_setting    = list(c(0.5, 0.5), c(0.7, 0.3), c(0.9, 0.1)),
+  c_setting    = c(0.5, 1.0, 2.0, 4.0, 5.0, 15.0),
+  bias_setting = 0.5
+) |>
+  mutate( # Add labels for each parameter setting for later use in plotting
+    setting_id = row_number(),
+    w_label    = map_chr(w_setting, ~paste(round(.x, 1), collapse = ",")),
+    c_label    = paste0("c≈", round(c_setting, 1)),
+    label      = paste0("w=(", w_label, "), ", c_label)
+  )
+
+n_agents_per_setting <- 5
+
+# Create a simulation plan that expands the parameter grid to include multiple agents per setting, assigning a unique agent ID to each simulated agent.
+simulation_plan <- param_grid |>
+  uncount(n_agents_per_setting) |>
+  mutate(agent_id = row_number())
+
+sim_file <- here("simdata", "ch12_gcm_simulated_responses.csv")
+
+if (regenerate_simulations || !file.exists(sim_file)) {
+  plan(multisession, workers = max(1, availableCores() - 1))
+
+  # run simulations in parallel across all parameter settings and agents
+  simulated_responses <- future_pmap_dfr(
+    list(
+      agent_id  = simulation_plan$agent_id,
+      w_true    = simulation_plan$w_setting,
+      c_true    = simulation_plan$c_setting,
+      bias_true = simulation_plan$bias_setting
+    ),
+    simulate_gcm_agent,
+    sim_grid = sim_grid,
+    n_blocks      = n_blocks,
+    subject_seed  = simulation_plan$agent_id,
+    .options = furrr_options(seed = TRUE, packages = c("tidyverse", "dplyr"))
+  )
+
+  # Save responses for future use
+  plan(sequential)
+  write_csv(simulated_responses, sim_file)
+  cat("Simulation complete. Results saved.\n")
+} else {
+  simulated_responses <- read_csv(sim_file, show_col_types = FALSE)
+  cat("Loaded existing simulation results.\n")
+}
+```
+
 
 # Experimental Data 
 ```{r}
