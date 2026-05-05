@@ -271,7 +271,11 @@ simulation_plan <- param_grid |>
   uncount(n_agents_per_setting) |>
   mutate(agent_id = row_number())
 
-sim_file <- here("simdata", "ch12_gcm_simulated_responses.csv")
+# create simdata folder
+if (!dir.exists(glue::glue("{main_path}/simdata"))) {
+  dir.create(glue::glue("{main_path}/simdata"))
+}
+sim_file <- glue::glue("{main_path}/simdata/simulated_responses.csv")
 
 if (regenerate_simulations || !file.exists(sim_file)) {
 
