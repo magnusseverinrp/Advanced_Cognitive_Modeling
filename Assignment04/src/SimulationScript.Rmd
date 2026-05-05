@@ -16,7 +16,7 @@ pacman::p_load(
   patchwork
 )
 
-main_path <- "/Users/mattie/Desktop/Masters/ACM/AdvancedCognitiveModelling/Advanced_Cognitive_Modeling/Assignment04/"
+main_path <- "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment04/"
 
 knitr::opts_knit$set(root.dir = main_path)
 
@@ -303,6 +303,85 @@ if (regenerate_simulations || !file.exists(sim_file)) {
 }
 ```
 
+# Simulation Data 
+```{r}
+sim_data <- read_csv(glue::glue("{main_path}simdata/simulated_responses.csv"))
+```
+
+```{r}
+stan_file_gcm_single <- "stan/ch12_gcm_single.stan"
+mod_gcm_single <- cmdstan_model(stan_file_gcm_single)
+
+```
+
+
+# Fit for single agent 
+```{r}
+agent_to_fit <- sim_data |>
+  filter(
+    round(w4_true, 1) == 1.0,
+    abs(log_c_true - log(2.0)) == min(abs(log_c_true - log(2.0)))
+  ) |>
+  filter(agent_id == min(agent_id)) |>
+  slice(1:total_trials)
+
+stopifnot(nrow(agent_to_fit) == total_trials)
+
+gcm_data_single <- list(
+  N_total           = nrow(agent_to_fit),
+  N_features        = 5L,
+  y                 = as.integer(agent_to_fit$sim_response),
+  obs               = as.matrix(agent_to_fit[, c("feature1", "feature2", "feature3", "feature4", "feature5")]),
+  danger_feedback      = as.integer(agent_to_fit$danger_feedback),
+  prior_w_alpha     = rep(1, 5),
+  prior_log_c_mu    = log(2), 
+  prior_log_c_sigma = 1, 
+  prior_bias_alpha  = 1,
+  prior_bias_beta   = 1,
+  run_diagnostics   = 1L
+)
+
+fit_filepath_single <- glue::glue("{main_path}src/stan/ch12_gcm_single_fit.rds")
+
+if (regenerate_simulations || !file.exists(fit_filepath_single)) {
+  pf_single <- tryCatch(
+    mod_gcm_single$pathfinder(
+      data      = gcm_data_single,
+      seed      = 123,
+      num_paths = 4,
+      refresh   = 0
+    ),
+    error = function(e) {
+      message("Pathfinder failed — falling back to default initialisation.")
+      NULL
+    }
+  )
+
+  fit_gcm_single <- mod_gcm_single$sample(
+    data            = gcm_data_single,
+    init            = pf_single,
+    seed            = 123,
+    chains          = 4,
+    parallel_chains = min(4, availableCores()),
+    iter_warmup     = 500,
+    iter_sampling   = 1500,
+    refresh         = 300,
+    adapt_delta     = 0.9
+  )
+  fit_gcm_single$save_object(fit_filepath_single)
+  cat("Single-agent model fitted and saved.\n")
+} else {
+  fit_gcm_single <- readRDS(fit_filepath_single)
+  cat("Loaded existing single-agent fit.\n")
+}
+```
+
+```{r}
+readRDS(glue::glue("{main_path}src/stan/ch12_gcm_single_fit.rds"))
+
+```
+
+
 MODEL FIT - MCMC Diagnostics
 ```{r}
 if (!is.null(fit_gcm_single)) {
@@ -327,68 +406,7 @@ if (!is.null(fit_gcm_single)) {
 }
 ```
 
-## Fit the single subject GCM
-```{r}
-# select one simulated agent e.g. w = (0.1, 0.1, 0.1, 0.6, 0.1), c = 2.0
-agent_to_fit <- simulated_responses %>% 
-  filter(
-    round(w4_true, 1) == 0.6,
-    abs(log_c_true - log(2.0)) == min(abs(log_c_true - log(3.0)))
-  ) %>% 
-  filter(agent_id == min(agent_id)) %>% 
-  slice(1 : totral_trials)
 
-# stop if the selected agent doesn't have the expected number of trials (sanity check)
-stopifnot(nrow(agent_to_fit == tota_trial)
-          
-gcm_data_single <- list(
-  N_total = nrow(agent_to_fit),
-  N_features = 2L, # number of features (for attention weights)
-  y = as.integer(agent_to_fit$sim_response),
-  obs = as.matrix(agent_to_fit[, c("feature1", "feature2", "feature3", "feature4", "feature5")]),
-  danger = as.integer(agent_to_fit$danger_feedback),
-  prior_w_alpha = c(1,1)
-  prior_log_c_mu = LOG_C_PRIOR_MEAN,
-  prior_log_c_sd = LOG_C_PRIOR_SD,
-  prior_bias_alpha = 1,
-  prior_bias_beta = 1,
-  run_diagnostics = 1L # set to 1 to compute log-likelihood for LOO, 0 to skip (saves time if not doing LOO)
-)
-
-fit_file_path_single <- glue::glue("{main_path}/simdata/gcm_fit_single.rds")
-
-if (regenerate_simulations || !file.exists(fit_filepath_single)) {
-  pf_single <- tryCatch(
-    mod_gcm_single$pathfinder(
-      data = gcm_data_single,
-      seed = 123,
-      num_paths = 4
-      refresh = 0
-    ),
-    error = function(e) {
-      message("pathfinder failed - falling back to default")
-      NULL
-    }
-  )
-
-  fit_gcm_single <- model_gcm_single$sample(
-    data = gcm_data_single,
-    init = pf_single, # use pathfinder results for initialization if available, otherwise use default random init
-    seed = 123, 
-    chains = 4,
-    parallel_chains = min(4, availableCores()),
-    iter_warmup = 1000,
-    iter_sampling = 1500,
-    refresh = 300,
-    adapt_delta = 0.9
-  )
-  fit_gcm_single$save_object(file = fit_file_path_single)
-  cat("single-agent model fitting complete. Fit object saved.\n")
-} else {
-  fit_gcm_single <- readRDS(fit_file_path_single)
-  cat("Loaded existing single-agent model fit.\n")
-}
-```
 
 
 ## Model Checks - single subject
@@ -400,7 +418,7 @@ n_prior_samples <- 500
 # Define prior distributions for the parameters
 prior_draws <- tibble(
   sample_id = seq_len(n_prior_samples),
-  log_c = rnorm(n_prior_samples, LOG_C_PRIOR_MEAN, LOG_C_PRIOR_SD),
+  log_c = rnorm(n_prior_samples, log(2), 1),
   w4 = runif(n_prior_samples),
   bias = rbeta(n_prior_samples, 1, 1)
 ) %>% 
