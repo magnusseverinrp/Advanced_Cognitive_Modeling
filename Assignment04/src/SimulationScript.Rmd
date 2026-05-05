@@ -115,7 +115,7 @@ GENERATIVE GCM MODEL FUNCTION
 gcm_simulate <- function(w,            # attention weights (sums to 1)
                          c,            # sensitivity (natural scale, strictly positive) based on distance
                          bias,         # response bias towards category 1
-                         features,      # matrix of stimulus features (trials x features)
+                         features,     # matrix of stimulus features (trials x features)
                          danger,       # true category labels (0 or 1)
                          quiet = TRUE) {
   
@@ -302,6 +302,286 @@ if (regenerate_simulations || !file.exists(sim_file)) {
   cat("Loaded existing simulation results.\n")
 }
 ```
+
+MODEL FIT - MCMC Diagnostics
+```{r}
+if (!is.null(fit_gcm_single)) {
+  diag_tbl <- diagnostic_summary_table(
+    fit_gcm_single,
+    params = c("w[1]", "w[2]", "w[3]", "w[4]", "w[5]", "log_c", "c", "bias")
+  )
+  print(diag_tbl)
+
+  if (!all(diag_tbl$pass)) {
+    warning("Diagnostic battery has failures — interpret posteriors with caution.")
+  }
+
+  bayesplot::mcmc_trace(
+    fit_gcm_single$draws(c("log_c", "w[4]", "bias")),
+    facet_args = list(ncol = 1)
+  )
+
+  bayesplot::mcmc_rank_overlay(
+    fit_gcm_single$draws(c("log_c", "w[4]", "bias"))
+  )
+}
+```
+
+## Fit the single subject GCM
+```{r}
+# select one simulated agent e.g. w = (0.1, 0.1, 0.1, 0.6, 0.1), c = 2.0
+agent_to_fit <- simulated_responses %>% 
+  filter(
+    round(w4_true, 1) == 0.6,
+    abs(log_c_true - log(2.0)) == min(abs(log_c_true - log(3.0)))
+  ) %>% 
+  filter(agent_id == min(agent_id)) %>% 
+  slice(1 : totral_trials)
+
+# stop if the selected agent doesn't have the expected number of trials (sanity check)
+stopifnot(nrow(agent_to_fit == tota_trial)
+          
+gcm_data_single <- list(
+  N_total = nrow(agent_to_fit),
+  N_features = 2L, # number of features (for attention weights)
+  y = as.integer(agent_to_fit$sim_response),
+  obs = as.matrix(agent_to_fit[, c("feature1", "feature2", "feature3", "feature4", "feature5")]),
+  danger = as.integer(agent_to_fit$danger_feedback),
+  prior_w_alpha = c(1,1)
+  prior_log_c_mu = LOG_C_PRIOR_MEAN,
+  prior_log_c_sd = LOG_C_PRIOR_SD,
+  prior_bias_alpha = 1,
+  prior_bias_beta = 1,
+  run_diagnostics = 1L # set to 1 to compute log-likelihood for LOO, 0 to skip (saves time if not doing LOO)
+)
+
+fit_file_path_single <- glue::glue("{main_path}/simdata/gcm_fit_single.rds")
+
+if (regenerate_simulations || !file.exists(fit_filepath_single)) {
+  pf_single <- tryCatch(
+    mod_gcm_single$pathfinder(
+      data = gcm_data_single,
+      seed = 123,
+      num_paths = 4
+      refresh = 0
+    ),
+    error = function(e) {
+      message("pathfinder failed - falling back to default")
+      NULL
+    }
+  )
+
+  fit_gcm_single <- model_gcm_single$sample(
+    data = gcm_data_single,
+    init = pf_single, # use pathfinder results for initialization if available, otherwise use default random init
+    seed = 123, 
+    chains = 4,
+    parallel_chains = min(4, availableCores()),
+    iter_warmup = 1000,
+    iter_sampling = 1500,
+    refresh = 300,
+    adapt_delta = 0.9
+  )
+  fit_gcm_single$save_object(file = fit_file_path_single)
+  cat("single-agent model fitting complete. Fit object saved.\n")
+} else {
+  fit_gcm_single <- readRDS(fit_file_path_single)
+  cat("Loaded existing single-agent model fit.\n")
+}
+```
+
+
+## Model Checks - single subject
+
+PRIOR PREDICTIVE CHECK
+```{r}
+n_prior_samples <- 500
+
+# Define prior distributions for the parameters
+prior_draws <- tibble(
+  sample_id = seq_len(n_prior_samples),
+  log_c = rnorm(n_prior_samples, LOG_C_PRIOR_MEAN, LOG_C_PRIOR_SD),
+  w4 = runif(n_prior_samples),
+  bias = rbeta(n_prior_samples, 1, 1)
+) %>% 
+  mutate( c_true = exp(log_c),
+          w_remaining = (1-w4) / 4,
+          w1 = w_remaining,
+          w2 = w_remaining,
+          w3 = w_remaining,
+          w5 = w_remaining)
+
+ppc_schedule <- make_subject_schedule(sim_grid, n_blocks, seed = 123)
+
+
+# prior predictive curves
+prior_pred_curves <- pmap_dfr(
+  list(
+    sample_id = prior_draws$sample_id, # sample ID
+    log_c = prior_draws$log_c, # log sensitivity
+    w4 = prior_draws$w4, # attention weight on feature 4
+    bias = prior_draws$bias # response bias
+  ),
+  
+  function(sample_id, log_c, w4, bias){
+    c <- exp(log_c) # convert log sensitivity back to natural scale
+    sim <- gcm_simulate(
+      w = c((1-w4)/4, (1-w4)/4, (1-w4)/4, w4, (1-w4)/4), # attention weights
+      c = c, # sensitivity
+      bias = bias, # response bias
+      features = ppc_schedule |> dplyr::select(feature1, feature2, feature3, feature4, feature5), # stimulus features
+      danger = ppc_schedule$danger_feedback # true category labels
+    )
+    tibble(
+      sample_id = sample_id,
+      trial = seq_len(nrow(ppc_schedule)),
+      correct = as.integer(sim$sim_response == ppc_schedule$danger_feedback)
+    ) %>% 
+      mutate(cum_acc = cumsum(correct) / row_number())
+  }
+)
+
+# summarise prior predictive curves to get quantiles of cumulative accuracy across trials
+prior_pred_summary <- prior_pred_curves %>% 
+  group_by(trial) %>% 
+  summarise(
+    q05 = quantile(cum_acc, 0.05),
+    q25 = quantile(cum_acc, 0.25),
+    q50 = median(cum_acc),
+    q75 = quantile(cum_acc, 0.75),
+    q95 = quantile(cum_acc, 0.95),
+    .groups = "drop"
+  )
+
+# plot preior predictive check
+ggplot(prior_pred_summary, aes(x = trial)) +
+  geom_ribbon(aes(ymin = q05, ymax = q95), fill = "#56B4E9", alpha = 0.20) +
+  geom_ribbon(aes(ymin = q25, ymax = q75), fill = "#56B4E9", alpha = 0.40) +
+  geom_line(aes(y = q50), color = "#0072B2", linewidth = 1) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "grey40") +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title    = "Prior Predictive Check: GCM Learning Curves",
+    subtitle = "Ribbons: 50% and 90% prior predictive intervals; line: median\nPriors: log(c) ~ Normal(log 2, 1),  w ~ Dirichlet(1,1),  bias ~ Beta(1,1)",
+    x = "Trial", y = "Cumulative Accuracy"
+  )
+```
+
+POSTERIOR PREDICTIVE CHECK
+```{r}
+if (!is.null(fit_gcm_single)) {
+  prob_draws <- fit_gcm_single$draws("prob_dan1", format = "matrix")
+  n_draws    <- nrow(prob_draws)
+  n_trials   <- ncol(prob_draws)
+
+  set.seed(2025)
+  yrep_post <- matrix(rbinom(n_draws * n_trials, 1, as.vector(prob_draws)),
+                      nrow = n_draws)
+
+  obs_acc <- cummean(agent_to_fit$sim_response == agent_to_fit$danger_feedback)
+  rep_acc <- t(apply(yrep_post, 1, function(yr) {
+    cummean(yr == agent_to_fit$danger_feedback)
+  }))
+
+  ppc_summary <- tibble(
+    trial = seq_len(n_trials),
+    obs   = obs_acc,
+    q05   = apply(rep_acc, 2, quantile, 0.05),
+    q25   = apply(rep_acc, 2, quantile, 0.25),
+    q50   = apply(rep_acc, 2, quantile, 0.50),
+    q75   = apply(rep_acc, 2, quantile, 0.75),
+    q95   = apply(rep_acc, 2, quantile, 0.95)
+  )
+
+  ggplot(ppc_summary, aes(x = trial)) +
+    geom_ribbon(aes(ymin = q05, ymax = q95), fill = "#56B4E9", alpha = 0.20) +
+    geom_ribbon(aes(ymin = q25, ymax = q75), fill = "#56B4E9", alpha = 0.40) +
+    geom_line(aes(y = q50), color = "#0072B2", linewidth = 0.8) +
+    geom_line(aes(y = obs), color = "#D55E00", linewidth = 1) +
+    scale_y_continuous(limits = c(0, 1)) +
+    labs(
+      title    = "Posterior Predictive Check: Cumulative Accuracy",
+      subtitle = "Blue ribbons: 50% and 90% posterior predictive intervals\nOrange line: observed cumulative accuracy",
+      x = "Trial", y = "Cumulative Accuracy"
+    )
+}
+```
+ The cumulative accuracy is chosen for the PPC as it provides a better overview of the learning dynamics, compared to trial-level accuracy. The GCM's path dependence means that trial-level predictions are more variable and noisy, making it less insightful about model fit.
+
+
+PRIOR POSTERIOR UPDATE
+```{r}
+if (!is.null(fit_gcm_single)) {
+  draws_df <- as_draws_df(
+    fit_gcm_single$draws(variables = c("w[4]", "log_c", "c", "bias"))
+  )
+
+  true_w4    <- agent_to_fit$w4_true[4]
+  true_log_c <- agent_to_fit$log_c_true[1]
+  true_c     <- agent_to_fit$c_true[1]
+  true_bias  <- agent_to_fit$bias_true[1]
+
+  set.seed(2026)
+  n_prior <- 4000
+  prior_df <- tibble(
+    `w[4]` = runif(n_prior),
+    log_c  = rnorm(n_prior, LOG_C_PRIOR_MEAN, LOG_C_PRIOR_SD),
+    c      = exp(log_c),
+    bias   = rbeta(n_prior, 1, 1)
+  )
+
+  pp_panel <- function(prior_x, post_x, true_val, label) {
+    tibble(
+      x      = c(prior_x, post_x),
+      source = c(rep("Prior", length(prior_x)),
+                 rep("Posterior", length(post_x)))
+    ) |>
+      ggplot(aes(x = x, fill = source, color = source)) +
+      geom_density(alpha = 0.4, linewidth = 0.5) +
+      geom_vline(xintercept = true_val, color = "red",
+                 linetype = "dashed", linewidth = 0.7) +
+      scale_fill_manual(values = c(Prior = "grey60", Posterior = "#0072B2")) +
+      scale_color_manual(values = c(Prior = "grey40", Posterior = "#0072B2")) +
+      labs(title = label, x = NULL, y = "Density") +
+      theme(legend.position = "bottom")
+  }
+
+  p1 <- pp_panel(prior_df$`w[4]`, draws_df$`w[4]`, true_w4, "w[4]")
+  p2 <- pp_panel(prior_df$log_c,  draws_df$log_c,  true_log_c, "log(c) — computational scale")
+  p3 <- pp_panel(prior_df$c,      draws_df$c,      true_c,     "c — natural scale")
+  p4 <- pp_panel(prior_df$bias,   draws_df$bias,   true_bias,  "bias")
+
+  (p1 | p2) / (p3 | p4) +
+    plot_annotation(
+      title    = "Prior–Posterior Update for the Single-Subject GCM",
+      subtitle = "Red dashed line = true generating value"
+    )
+}
+```
+
+JOINT POSTERIOR GEOMETRY - Check for no correlation between parameters
+```{r}
+if (!is.null(fit_gcm_single)) {
+  bayesplot::mcmc_pairs(
+    fit_gcm_single$draws(c("log_c", "w[4]", "bias")),
+    diag_fun     = "dens",
+    off_diag_fun = "hex"
+  )
+}
+```
+
+LOO with PARETO-K DIAGNOSTICS - Check for issues with influential data points
+```{r}
+if (!is.null(fit_gcm_single)) {
+  log_lik_mat    <- fit_gcm_single$draws("log_lik", format = "matrix")
+  loo_gcm_single <- loo::loo(log_lik_mat, cores = 4)
+  print(loo_gcm_single)
+
+  plot(loo_gcm_single, label_points = TRUE,
+       main = "PSIS-LOO Pareto-k diagnostics: Single-subject GCM")
+}
+```
+Pareto k estimates are good if k < 0.7.
 
 
 # Experimental Data 
