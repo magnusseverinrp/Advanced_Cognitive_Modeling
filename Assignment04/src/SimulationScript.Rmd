@@ -248,7 +248,12 @@ simulate_gcm_agent <- function(agent_id, w_true, c_true, bias_true,
 TESTING DIFFERENT PARAMETER SETTINGS
 ```{r}
 param_grid <- expand_grid(
-  w_setting    = list(c(0.5, 0.5), c(0.7, 0.3), c(0.9, 0.1)),
+  w_setting    = list(
+        c(0.2, 0.2, 0.2, 0.2, 0.2),        # equal attention to all features
+        c(0.4, 0.1, 0.4, 0.05, 0.05),      # attention on features 1 & 3 (session 1 rule)
+        c(0.05, 0.05, 0.05, 0.8, 0.05),    # attention on feature 4 (session 2 rule)
+        c(0.05, 0.05, 0.05, 0.45, 0.4)     # attention on features 4 & 5 (session 3 rule)
+        ),
   c_setting    = c(0.5, 1.0, 2.0, 4.0, 5.0, 15.0),
   bias_setting = 0.5
 ) |>
@@ -269,7 +274,6 @@ simulation_plan <- param_grid |>
 sim_file <- here("simdata", "ch12_gcm_simulated_responses.csv")
 
 if (regenerate_simulations || !file.exists(sim_file)) {
-  plan(multisession, workers = max(1, availableCores() - 1))
 
   # run simulations in parallel across all parameter settings and agents
   simulated_responses <- future_pmap_dfr(
