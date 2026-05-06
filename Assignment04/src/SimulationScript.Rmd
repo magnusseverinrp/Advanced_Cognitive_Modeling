@@ -11,13 +11,14 @@ pacman::p_load(
   rstan,
   posterior,    # Posterior analysis
   bayesplot,    # Plotting MCMC
+  forcats,
   furrr,        # Parallel processing
   future,        # Future backend
   patchwork,
   hexbin
 )
 
-main_path <- "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment04/"
+main_path <- "/Users/sofiebojgaardthomsen/Documents/ACM/GitHub/Advanced_Cognitive_Modeling/Assignment04/"
 
 knitr::opts_knit$set(root.dir = main_path)
 
@@ -608,8 +609,356 @@ if (!is.null(fit_gcm_single)) {
 ```
 Pareto k estimates are good if k < 0.7.
 
+# Plots to compare the simulated data to the empirical data
+
+
+```{r}
+# Load sim_data
+sim_data <- read_csv(glue::glue("{main_path}/simdata/simulated_responses.csv")) 
+ 
+
+# ADD LABELS
+sim_labeled <- sim_data %>%
+  mutate(
+    c_label  = fct_reorder(paste0("c = ", round(c_true, 1)), c_true),
+    w4_label = case_when(
+      w4_true == 0.2 ~ "w4 = 0.2 (uniform)",
+      w4_true == 1.0 ~ "w4 = 1.0 (extreme)",
+      w4_true == 0.6 ~ "w4 = 0.6 (middle)",
+      w4_true == 0.8 ~ "w4 = 0.8 (strong)",
+      TRUE           ~ paste0("w4 = ", w4_true)
+    ),
+    w4_label = fct_reorder(w4_label, w4_true)
+  )
+ 
+# Block boundary positions
+block_boundaries <- sim_labeled %>%
+  group_by(block) %>%
+  summarise(end_trial = max(trial_within_subject), .groups = "drop") %>%
+  filter(block < max(block)) %>%
+  pull(end_trial) %>%
+  {. + 0.5}
+ 
+
+# CUMULATIVE ACCURACY — effect of c, faceted by w4
+p_c_effect <- ggplot(
+  sim_labeled,
+  aes(x      = trial_within_subject,
+      y      = performance,
+      colour = c_label,
+      group  = interaction(agent_id, c_label))
+) +
+  stat_summary(fun = mean, geom = "line",
+               aes(group = c_label), linewidth = 1.1) +
+  geom_vline(xintercept = block_boundaries,
+             linetype = "dashed", alpha = 0.4, colour = "grey30") +
+  facet_wrap(~w4_label) +
+  scale_colour_viridis_d(option = "plasma", name = "Sensitivity (c)") +
+  labs(
+    title    = "Effect of sensitivity (c) on GCM performance",
+    subtitle = "Mean cumulative accuracy across agents; dashed = block boundary",
+    x = "Trial", y = "Cumulative accuracy"
+  ) +
+  ylim(0, 1) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position  = "bottom",
+        strip.text       = element_text(face = "bold"),
+        panel.grid.minor = element_blank())
+ 
+
+# CUMULATIVE ACCURACY — effect of w4, faceted by c
+p_w_effect <- ggplot(
+  sim_labeled,
+  aes(x      = trial_within_subject,
+      y      = performance,
+      colour = w4_label,
+      group  = interaction(agent_id, w4_label))
+) +
+  stat_summary(fun = mean, geom = "line",
+               aes(group = w4_label), linewidth = 1.1) +
+  geom_vline(xintercept = block_boundaries,
+             linetype = "dashed", alpha = 0.4, colour = "grey30") +
+  facet_wrap(~c_label) +
+  scale_colour_brewer(palette = "Set1", name = "Attention to feature 4 (w4)") +
+  labs(
+    title    = "Effect of attention weight on feature 4 (w4) on GCM performance",
+    subtitle = "Mean cumulative accuracy across agents; dashed = block boundary",
+    x = "Trial", y = "Cumulative accuracy"
+  ) +
+  ylim(0, 1) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position  = "bottom",
+        strip.text       = element_text(face = "bold"),
+        panel.grid.minor = element_blank())
+ 
+
+# ROLLING ACCURACY (window = 8)
+roll_k <- function(x, k = 8) as.numeric(stats::filter(x, rep(1/k, k), sides = 1))
+ 
+rolling <- sim_labeled %>%
+  arrange(agent_id, trial_within_subject) %>%
+  group_by(agent_id, c_label, w4_label) %>%
+  mutate(rolling_acc = roll_k(correct, k = 8)) %>%
+  ungroup()
+ 
+p_rolling <- ggplot(
+  rolling,
+  aes(x      = trial_within_subject,
+      y      = rolling_acc,
+      colour = c_label,
+      group  = interaction(agent_id, c_label))
+) +
+  stat_summary(fun = mean, geom = "line",
+               aes(group = c_label), linewidth = 1.1, na.rm = TRUE) +
+  geom_vline(xintercept = block_boundaries,
+             linetype = "dashed", alpha = 0.4, colour = "grey30") +
+  facet_wrap(~w4_label) +
+  scale_colour_viridis_d(option = "plasma", name = "Sensitivity (c)") +
+  labs(
+    title    = "Rolling accuracy (window = 8 trials)",
+    subtitle = "Captures within-block learning; dashed = block boundary",
+    x = "Trial", y = "Rolling accuracy"
+  ) +
+  ylim(0, 1) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position  = "bottom",
+        strip.text       = element_text(face = "bold"),
+        panel.grid.minor = element_blank())
+ 
+
+# P(dangerous) OVER TRIALS — model confidence by true label
+p_prob <- ggplot(
+  sim_labeled,
+  aes(x      = trial_within_subject,
+      y      = prob_dan1,
+      colour = factor(danger_feedback))
+) +
+  geom_smooth(se = FALSE, linewidth = 0.9, method = "loess", span = 0.3) +
+  geom_vline(xintercept = block_boundaries,
+             linetype = "dashed", alpha = 0.4, colour = "grey30") +
+  facet_wrap(~c_label) +
+  scale_colour_manual(
+    values = c("0" = "#0072B2", "1" = "#D55E00"),
+    labels = c("Safe", "Dangerous"),
+    name   = "True label"
+  ) +
+  labs(
+    title    = "Model confidence P(dangerous) by true category",
+    subtitle = "Loess-smoothed; separation between lines = discrimination",
+    x = "Trial", y = "P(dangerous)"
+  ) +
+  ylim(0, 1) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position  = "bottom",
+        strip.text       = element_text(face = "bold"),
+        panel.grid.minor = element_blank())
+ 
+# Display plots
+print(p_c_effect)
+print(p_w_effect)
+print(p_rolling)
+print(p_prob)
+```
+#Comments on the results:
+plot 1
+Effect of c, faceted by w4
+The ceiling performance improves as w4 increases from uniform (0.2) to extreme (1.0), but only for high c values. Yellow (c=15) reaches ~90% with uniform attention but nearly 100% when w4=0.6 or higher — meaning sensitivity alone gets you far, but directing attention to the right feature (arms up, the session-2 danger rule) pushes it further. Crucially, low c (dark blue) barely changes across facets — when you're not sensitive enough to exploit fine-grained similarity, it doesn't matter where you direct your attention.
+
+plot 2
+Effect of w4, faceted by c
+This is the clearest story. At low c (top row), all four w4 settings produce nearly identical curves — the lines cluster together. At high c (bottom row), the split becomes dramatic: red (w4=0.2, uniform) plateaus around 60–65% while purple (w4=1.0, extreme) rockets to near-perfect accuracy very quickly. This is the key model prediction: w4 and c interact — attention only matters when sensitivity is high enough to act on it. Neither parameter alone is sufficient for good performance.
+
+plot 3
+Rolling accuracy
+Compared to the previous version, the within-block structure is now much cleaner. A few things stand out: the block boundaries (dashed lines) don't show visible dips like before — this makes sense because you're only fitting session 2, so the category rule is stable across all 3 blocks. The main remaining variability is just noise from the small window size. Yellow (c=15) is consistently at or near 1.0 from early on regardless of w4, while low-c agents stay noisy throughout.
+
+plot 4
+At c=0.5, the orange (truly dangerous) and blue (safe) lines barely separate — the model essentially guesses. As c increases, the gap widens dramatically: by c=15, orange is near 1.0 and blue near 0.0. Notice also that the separation is established very early (within the first ~10 trials) and then stays flat — the model isn't gradually learning across blocks, it locks in quickly. The block boundaries (dashed) cause no disruption at all, confirming that within-session rule stability means memory from earlier blocks helps rather than hurts.
+
+Thus, the two parameters play distinct roles — c governs how sharply the model discriminates at all, and w4 governs how efficiently it uses the most diagnostic feature. Their interaction is the core finding: high w4 without high c is wasted, and high c with low w4 hits a ceiling around 65% that it can't break through.
 
 # Experimental Data 
+
 ```{r}
-exp_data <- read_csv(glue::glue("{main_path}data/AlienData.txt")) 
+#Loading the exp_data
+exp_data <- read_csv(glue::glue("{main_path}/data/AlienData.txt"))
+```
+
+```{r}
+# Empirical mean per participant — session 2, individual condition only
+emp_by_subject <- exp_data %>%
+  filter(
+    session == 2,
+    condition == 2 
+  ) %>%
+  group_by(subject) %>%
+  summarise(
+    m  = mean(correct, na.rm = TRUE),
+    se = sd(correct, na.rm = TRUE) / sqrt(sum(!is.na(correct))),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    label = paste0("S", subject),
+    type  = "Empirical subjects"
+  )
+
+# Simulated mean per agent type
+sim_by_type <- sim_data %>%
+  mutate(
+    label = paste0("c=", round(c_true, 1), ", w4=", round(w4_true, 1))
+  ) %>%
+  group_by(label, c_true, w4_true) %>%
+  summarise(
+    m  = mean(correct, na.rm = TRUE),
+    se = sd(correct, na.rm = TRUE) / sqrt(sum(!is.na(correct))),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    type = "Simulated agent types"
+  )
+
+# COMBINE & PLOT SIDE BY SIDE
+combined <- bind_rows(
+  emp_by_subject %>% select(label, m, se, type),
+  sim_by_type %>% select(label, m, se, type)
+)
+
+p_comparison <- ggplot(combined, aes(x = reorder(label, m), y = m, fill = type)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_errorbar(aes(ymin = m - se, ymax = m + se), width = 0.25) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", alpha = 0.4) +
+  facet_wrap(~ type, scales = "free_x") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
+  labs(
+    title = "Mean accuracy: Empirical subjects vs. simulated agent types",
+    subtitle = "Empirical (individual condition); dashed line = chance (0.5)",
+    x = NULL,
+    y = "Proportion correct"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(
+      size = 8,
+      angle = 90,   # to have the bar labels vertically
+      vjust = 0.5,
+      hjust = 1
+    ),
+    panel.grid.minor = element_blank()
+  )
+
+print(p_comparison)
+```
+
+
+```{r}
+# plotting empirical data, individual condition only, excluding the first 8 training trials
+exp_data <- read_csv(glue::glue("{main_path}/data/AlienData.txt")) 
+
+d <- exp_data %>%
+  filter(condition == 2) %>%   # Individual condition only
+  mutate(
+    danger_resp    = as.integer(response %in% c(3, 4)),
+    nutri_resp     = as.integer(response %in% c(2, 4)),
+    correct_danger = as.integer(danger_resp == dangerous),
+    correct_nutri  = as.integer(nutri_resp  == nutricious),
+    correct_both   = as.integer(correct_danger == 1 & correct_nutri == 1),
+    session_f      = factor(session, labels = c("Session 1", "Session 2", "Session 3")),
+    condition_f    = "Individual"
+  ) %>%
+  group_by(subject, session) %>%
+  arrange(cycle, trial, .by_group = TRUE) %>%
+  mutate(original_trial_in_session = row_number()) %>%
+  filter(original_trial_in_session > 8) %>%   # to remove first 8 training trials
+  mutate(trial_in_session = row_number()) %>% # to renumber remaining 96 trials
+  ungroup() %>%
+  group_by(subject, session) %>%
+  arrange(trial_in_session, .by_group = TRUE) %>%
+  mutate(
+    trial_global = row_number(),
+    performance  = cumsum(correct_danger) / row_number()
+  ) %>%
+  ungroup()
+
+block_boundaries_sess <- c(32.5, 64.5)
+
+theme_set(theme_minimal(base_size = 12))
+pal_cond <- c("Individual" = "#D55E00")
+
+# CUMULATIVE ACCURACY OVER TRIALS
+p_cumulative <- d %>%
+  group_by(subject, session_f) %>%
+  arrange(trial_in_session, .by_group = TRUE) %>%
+  mutate(cumulative = cumsum(correct_danger) / row_number()) %>%
+  ungroup() %>%
+  group_by(condition_f, session_f, trial_in_session) %>%
+  summarise(
+    m  = mean(cumulative, na.rm = TRUE),
+    se = sd(cumulative, na.rm = TRUE) / sqrt(sum(!is.na(cumulative))),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(trial_in_session, m,
+             colour = condition_f, fill = condition_f)) +
+  geom_ribbon(aes(ymin = m - se, ymax = m + se),
+              alpha = 0.15, colour = NA) +
+  geom_line(linewidth = 0.9) +
+  geom_vline(xintercept = block_boundaries_sess,
+             linetype = "dashed", alpha = 0.4, colour = "grey30") +
+  facet_wrap(~session_f) +
+  scale_colour_manual(values = pal_cond, name = "Condition") +
+  scale_fill_manual(values = pal_cond, name = "Condition") +
+  labs(
+    title = "Empirical: Cumulative accuracy over trials (danger dimension)",
+    subtitle = "Individual condition only; first 8 training trials removed; Mean ± SE",
+    x = "Trial within session",
+    y = "Cumulative accuracy"
+  ) +
+  ylim(0, 1) +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+# ROLLING ACCURACY
+roll_k <- function(x, k = 8) {
+  as.numeric(stats::filter(x, rep(1/k, k), sides = 1))
+}
+
+p_rolling <- d %>%
+  arrange(subject, session, trial_in_session) %>%
+  group_by(subject, session_f, condition_f) %>%
+  mutate(rolling = roll_k(correct_danger, k = 8)) %>%
+  ungroup() %>%
+  group_by(condition_f, session_f, trial_in_session) %>%
+  summarise(
+    m  = mean(rolling, na.rm = TRUE),
+    se = sd(rolling, na.rm = TRUE) / sqrt(sum(!is.na(rolling))),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(trial_in_session, m,
+             colour = condition_f, fill = condition_f)) +
+  geom_ribbon(aes(ymin = m - se, ymax = m + se),
+              alpha = 0.15, colour = NA) +
+  geom_line(linewidth = 0.9) +
+  geom_vline(xintercept = block_boundaries_sess,
+             linetype = "dashed", alpha = 0.4, colour = "grey30") +
+  facet_wrap(~session_f) +
+  scale_colour_manual(values = pal_cond, name = "Condition") +
+  scale_fill_manual(values = pal_cond, name = "Condition") +
+  labs(
+    title = "Empirical: Rolling accuracy (window = 8, danger dimension)",
+    subtitle = "Individual condition only; first 8 training trials removed; Mean ± SE",
+    x = "Trial within session",
+    y = "Rolling accuracy"
+  ) +
+  ylim(0, 1) +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+print(p_cumulative)
+print(p_rolling)
 ```
