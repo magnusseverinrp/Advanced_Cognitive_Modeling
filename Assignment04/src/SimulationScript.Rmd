@@ -18,9 +18,11 @@ pacman::p_load(
   hexbin
 )
 
-main_path <- "/Users/mattie/Desktop/Masters/ACM/AdvancedCognitiveModelling/Advanced_Cognitive_Modeling/Assignment04/"
+main_path <- "/Users/LauraSoerineVoldgaard/Library/Mobile Documents/com~apple~CloudDocs/CogSci/Master/8. semester/ACM/Portfolios/Advanced_Cognitive_Modeling/Assignment04/"
 
 knitr::opts_knit$set(root.dir = main_path)
+
+getwd()
 
 ```
 
@@ -763,23 +765,6 @@ print(p_w_effect)
 print(p_rolling)
 print(p_prob)
 ```
-#Comments on the results:
-plot 1
-Effect of c, faceted by w4
-The ceiling performance improves as w4 increases from uniform (0.2) to extreme (1.0), but only for high c values. Yellow (c=15) reaches ~90% with uniform attention but nearly 100% when w4=0.6 or higher — meaning sensitivity alone gets you far, but directing attention to the right feature (arms up, the session-2 danger rule) pushes it further. Crucially, low c (dark blue) barely changes across facets — when you're not sensitive enough to exploit fine-grained similarity, it doesn't matter where you direct your attention.
-
-plot 2
-Effect of w4, faceted by c
-This is the clearest story. At low c (top row), all four w4 settings produce nearly identical curves — the lines cluster together. At high c (bottom row), the split becomes dramatic: red (w4=0.2, uniform) plateaus around 60–65% while purple (w4=1.0, extreme) rockets to near-perfect accuracy very quickly. This is the key model prediction: w4 and c interact — attention only matters when sensitivity is high enough to act on it. Neither parameter alone is sufficient for good performance.
-
-plot 3
-Rolling accuracy
-Compared to the previous version, the within-block structure is now much cleaner. A few things stand out: the block boundaries (dashed lines) don't show visible dips like before — this makes sense because you're only fitting session 2, so the category rule is stable across all 3 blocks. The main remaining variability is just noise from the small window size. Yellow (c=15) is consistently at or near 1.0 from early on regardless of w4, while low-c agents stay noisy throughout.
-
-plot 4
-At c=0.5, the orange (truly dangerous) and blue (safe) lines barely separate — the model essentially guesses. As c increases, the gap widens dramatically: by c=15, orange is near 1.0 and blue near 0.0. Notice also that the separation is established very early (within the first ~10 trials) and then stays flat — the model isn't gradually learning across blocks, it locks in quickly. The block boundaries (dashed) cause no disruption at all, confirming that within-session rule stability means memory from earlier blocks helps rather than hurts.
-
-Thus, the two parameters play distinct roles — c governs how sharply the model discriminates at all, and w4 governs how efficiently it uses the most diagnostic feature. Their interaction is the core finding: high w4 without high c is wasted, and high c with low w4 hits a ceiling around 65% that it can't break through.
 
 
 # EXPERIMENTAL DATA
@@ -969,5 +954,677 @@ p_rolling <- d %>%
 print(p_cumulative)
 print(p_rolling)
 ```
+
+
+
+
+# EXPERIMENTAL DATA MODEL QUALITY CHECKS
+
+# Experimental Data 
+```{r}
+exp_data <- read_csv(glue::glue("{main_path}data/AlienData.txt")) 
+exp_data
+```
+
+
+```{r}
+exp_data <- exp_data %>%
+  filter(
+    session == 2,
+    condition == 2
+  ) %>%
+  mutate(
+    stim_code = str_remove(stimulus, "\\.jpg$"),
+    feature1 = as.integer(str_sub(stim_code, 1, 1)),
+    feature2 = as.integer(str_sub(stim_code, 2, 2)),
+    feature3 = as.integer(str_sub(stim_code, 3, 3)),
+    feature4 = as.integer(str_sub(stim_code, 4, 4)),
+    feature5 = as.integer(str_sub(stim_code, 5, 5)),
+    
+    y = as.integer(response %in% c(3, 4)),   # participant responded dangerous
+    danger_feedback = as.integer(dangerous)  # true danger label
+  ) %>%
+  group_by(subject) %>%
+  arrange(cycle, trial, .by_group = TRUE) %>%
+  mutate(original_trial_in_session = row_number()) %>%
+  filter(original_trial_in_session > 8) %>%     # remove first 8 training trials
+  mutate(trial_in_session = row_number()) %>%
+  ungroup()
+
+```
+
+
+
+
+FIT MODEL BY PARTICIPANT TO SESSION 2 EMPIRICAL DATA
+```{r}
+
+# remove .jpg from simulus column and separate number into individual columns of features
+exp_data <- exp_data %>% 
+  filter(session == 2, condition == 2) %>% 
+  mutate(
+    stimulus = str_remove(stimulus, '.jpg'),
+    feature1 = as.integer(str_sub(stimulus, 1, 1)),
+    feature2 = as.integer(str_sub(stimulus, 2, 2)),
+    feature3 = as.integer(str_sub(stimulus, 3, 3)),
+    feature4 = as.integer(str_sub(stimulus, 4, 4)),
+    feature5 = as.integer(str_sub(stimulus, 5, 5)),
+    danger_response = 
+      case_when(
+        response %in% c(3, 4) ~ 1L, # if response is 3 or 4, it's a danger response
+        response %in% c(1, 2) ~ 0L, # if 1 or 2, it's a safe response
+        TRUE ~ NA_integer_
+      )
+  )
+
+
+# for loop to run model fit per participant based on "subject"
+unique_subjects <- unique(exp_data$subject)
+
+for (subj in unique_subjects) {
+  agent_to_fit <- exp_data %>% filter(subject == subj)
+
+  # prepare data list for Stan
+  gcm_data_exp_single <- list(
+    N_total           = nrow(agent_to_fit), 
+    N_features        = 5L,
+    y                 = as.integer(agent_to_fit$danger_response),
+    obs               = as.matrix(agent_to_fit[, c("feature1", "feature2", "feature3", "feature4", "feature5")]),
+    danger_feedback   = as.integer(agent_to_fit$dangerous),
+    prior_w_alpha     = rep(1, 5),
+    prior_log_c_mu    = log(2), 
+    prior_log_c_sigma = 1, 
+    prior_bias_alpha  = 1,
+    prior_bias_beta   = 1,
+    run_diagnostics   = 1L
+  )
+  
+
+  # file path that changes per subject id
+  subj <- sprintf("%02d", subj) # zero-pad subject ID for consistent file naming
+  fit_filepath <- glue::glue("{main_path}src/stan/gcm_subj{subj}_fit.rds")
+  
+  # fit model for this subject and save, or load existing fit if it exists
+  if (regenerate_simulations || !file.exists(fit_filepath)) {
+    pf_single <- tryCatch(
+      mod_gcm_single $pathfinder(
+        data      = gcm_data_exp_single,
+        seed      = 123,
+        num_paths = 4,
+        refresh   = 0
+      ),
+      error = function(e) {
+        message("Pathfinder failed — falling back to default initialisation.")
+        NULL
+      }
+    )
+      
+      # fit model
+      fit_gcm <- mod_gcm_single$sample(
+      data            = gcm_data_exp_single,
+      init            = pf_single,
+      seed            = 123,
+      chains          = 4,
+      parallel_chains = min(4, availableCores()),
+      iter_warmup     = 500,
+      iter_sampling   = 1500,
+      refresh         = 300,
+      adapt_delta     = 0.9
+    )
+    fit_gcm$save_object(fit_filepath)
+    cat(glue::glue("Model fitted and saved for subj {subj}.\n"))
+  } else {
+    fit_gcm <- readRDS(fit_filepath)
+    cat(glue::glue("Loaded existing subject {subj} fit.\n"))
+  }
+}
+
+```
+
+
+
+# EXPERIMENTAL DATA MODEL FIT
+
+
+# MCMC Diagnostics
+```{r}
+# all participants
+subjects <- unique(exp_data$subject)
+
+# Build trace and rank plots for all subjects
+trace_plots <- map(subjects, function(subj) {
+  
+  subj_padded <- sprintf("%02d", subj)
+  fit_path <- glue::glue("{main_path}src/stan/gcm_subj{subj_padded}_fit.rds")
+  
+  if (!file.exists(fit_path)) {
+    message("No fit found for subject ", subj, " — skipping")
+    return(NULL)
+  }
+  fit_subj <- readRDS(fit_path)
+  
+  p_trace <- bayesplot::mcmc_trace(
+    fit_subj$draws(c("log_c", "w[4]", "bias")),
+    facet_args = list(ncol = 1)
+  ) + ggtitle(paste("Subject", subj))
+  
+  p_rank <- bayesplot::mcmc_rank_overlay(
+    fit_subj$draws(c("log_c", "w[4]", "bias"))
+  ) + ggtitle(paste("Subject", subj))
+  
+  list(trace = p_trace, rank = p_rank)
+})
+
+trace_plots <- trace_plots[!sapply(trace_plots, is.null)]
+
+# Split into groups of 9 and print one grid per group
+subject_groups <- split(trace_plots, ceiling(seq_along(trace_plots) / 9))
+
+# Trace plots — 3 grids of 9
+walk(seq_along(subject_groups), function(i) {
+  print(
+    wrap_plots(map(subject_groups[[i]], "trace"), ncol = 3) +
+      plot_annotation(
+        title = paste0("Trace Plots — Subjects ", (i-1)*9 + 1, "-", min(i*9, length(trace_plots)))
+      )
+  )
+})
+
+# Rank plots — 3 grids of 9
+walk(seq_along(subject_groups), function(i) {
+  print(
+    wrap_plots(map(subject_groups[[i]], "rank"), ncol = 3) +
+      plot_annotation(
+        title = paste0("Rank Overlay Plots — Subjects ", (i-1)*9 + 1, "-", min(i*9, length(trace_plots)))
+      )
+  )
+})
+```
+
+
+
+
+# Check for Divergent Transitions - Chain level diagnostics
+```{r}
+diagnostic_summary_all <- map_dfr(subjects, function(subj) {
+  
+  subj_padded <- sprintf("%02d", subj)
+  fit_path <- glue::glue("{main_path}src/stan/gcm_subj{subj_padded}_fit.rds")
+  
+  if (!file.exists(fit_path)) {
+    message("No fit found for subject ", subj, " — skipping")
+    return(NULL)
+  }
+  fit_subj <- readRDS(fit_path)
+  
+  # diagnostic_summary() returns a list — convert to tibble and tag with subject
+  diag <- fit_subj$diagnostic_summary()
+  
+  tibble(
+    subject        = subj,
+    num_divergent  = sum(diag$num_divergent),
+    num_max_treedepth = sum(diag$num_max_treedepth),
+    ebfmi          = mean(diag$ebfmi)
+  )
+})
+
+diagnostic_summary_all
+
+```
+
+
+# Check R-hat, EBFMI and ESS metrics
+```{r}
+fit_summary <- fit_gcm$summary(variables = c("w[1]", "w[2]", "w[3]", "w[4]", "w[5]", "log_c", "c", "bias"))
+fit_summary <- as.data.frame(fit_summary)
+
+print(fit_summary %>% select(variable, mean, rhat, ess_bulk, ess_tail))
+```
+
+```{r}
+fit_summary_all <- map_dfr(subjects, function(subj) {
+  
+  subj_padded <- sprintf("%02d", subj)
+  fit_path <- glue::glue("{main_path}src/stan/gcm_subj{subj_padded}_fit.rds")
+  
+  if (!file.exists(fit_path)) {
+    message("No fit found for subject ", subj, " — skipping")
+    return(NULL)
+  }
+  fit_subj <- readRDS(fit_path)
+  
+  fit_subj$summary(variables = c("w[1]", "w[2]", "w[3]", "w[4]", "w[5]", "log_c", "c", "bias")) %>%
+    as.data.frame() %>%
+    select(variable, mean, rhat, ess_bulk, ess_tail) %>%
+    mutate(subject = subj) %>%          # tag with subject ID
+    select(subject, everything())        # put subject first
+})
+
+#print(fit_summary_all)
+
+
+# flag any rows with rhat > 1.01 or ess < 400
+fit_summary_all %>% 
+  filter(rhat > 1.01 | ess_bulk < 400 | ess_tail < 400)
+```
+
+
+
+
+
+
+# PRIOR PREDICTIVE CHECK - EXPERIMENTAL DATA
+```{r}
+# all participants
+knitr::opts_chunk$set(cache = FALSE)
+
+subjects <- unique(exp_data$subject)
+
+# Prior draws sampled once — same for all subjects
+n_prior_samples <- 500
+prior_draws <- tibble(
+  sample_id = seq_len(n_prior_samples),
+  log_c     = rnorm(n_prior_samples, log(2), 1),
+  w4        = runif(n_prior_samples),
+  bias      = rbeta(n_prior_samples, 1, 1)
+) %>%
+  mutate(
+    c_true      = exp(log_c),
+    w_remaining = (1 - w4) / 4,
+    w1 = w_remaining, w2 = w_remaining,
+    w3 = w_remaining, w5 = w_remaining
+  )
+
+# Loop over all subjects, only the schedule changes
+prior_pred_all <- map_dfr(subjects, function(subj) {
+  
+  ppc_schedule <- exp_data %>%
+    filter(subject == subj) %>%
+    arrange(trial)
+  
+  pmap_dfr(
+    list(
+      sample_id = prior_draws$sample_id,
+      log_c     = prior_draws$log_c,
+      w4        = prior_draws$w4,
+      bias      = prior_draws$bias
+    ),
+    function(sample_id, log_c, w4, bias) {
+      c   <- exp(log_c)
+      sim <- gcm_simulate(
+        w        = c((1-w4)/4, (1-w4)/4, (1-w4)/4, w4, (1-w4)/4),
+        c        = c,
+        bias     = bias,
+        features = ppc_schedule %>% select(feature1, feature2, feature3, feature4, feature5),
+        danger   = ppc_schedule$dangerous
+      )
+      tibble(
+        sample_id = sample_id,
+        trial     = seq_len(nrow(ppc_schedule)),
+        correct   = as.integer(sim$sim_response == ppc_schedule$dangerous)
+      ) %>%
+        mutate(cum_acc = cumsum(correct) / row_number())
+    }
+  ) %>%
+    group_by(trial) %>%
+    summarise(
+      q05 = quantile(cum_acc, 0.05),
+      q25 = quantile(cum_acc, 0.25),
+      q50 = median(cum_acc),
+      q75 = quantile(cum_acc, 0.75),
+      q95 = quantile(cum_acc, 0.95),
+      .groups = "drop"
+    ) %>%
+    mutate(subject = subj)
+})
+
+# Plot all subjects in a grid
+ggplot(prior_pred_all, aes(x = trial)) +
+  geom_ribbon(aes(ymin = q05, ymax = q95), fill = "#56B4E9", alpha = 0.20) +
+  geom_ribbon(aes(ymin = q25, ymax = q75), fill = "#56B4E9", alpha = 0.40) +
+  geom_line(aes(y = q50), color = "#0072B2", linewidth = 1) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "grey40") +
+  scale_y_continuous(limits = c(0, 1)) +
+  facet_wrap(~ subject, labeller = label_both) +
+  labs(
+    title    = "Prior Predictive Check: GCM — All Subjects",
+    subtitle = "Ribbons: 50% and 90% intervals; line: median\nPriors: log(c) ~ Normal(log 2, 1), w ~ Dirichlet(1,1), bias ~ Beta(1,1)",
+    x = "Trial", y = "Cumulative Accuracy"
+  )
+```
+
+
+
+
+
+
+
+
+# POSTERIOR PREDICTIVE CHECK - EXPERIMENTAL DATA
+```{r}
+# all participants
+subjects <- unique(exp_data$subject)
+
+ppc_plots <- map(subjects, function(subj) {
+  
+  # Get this subject's data
+  subj_data <- exp_data %>% 
+    filter(subject == subj) %>% 
+    arrange(trial)
+  
+  # Load this subject's fitted model — match the zero-padded naming from your loop
+  subj_padded <- sprintf("%02d", subj)
+  fit_path <- glue::glue("{main_path}src/stan/gcm_subj{subj_padded}_fit.rds")
+  
+  if (!file.exists(fit_path)) {
+    message("No fit found for subject ", subj, " — skipping")
+    return(NULL)
+  }
+  fit_subj <- readRDS(fit_path)
+  
+  # Extract posterior draws of trial-level P(dangerous)
+  prob_draws <- fit_subj$draws("prob_danger1", format = "matrix")
+  n_draws    <- nrow(prob_draws)
+  n_trials   <- ncol(prob_draws)
+  
+  # Simulate binary responses from the posterior predictive distribution
+  set.seed(2025)
+  yrep_post <- matrix(rbinom(n_draws * n_trials, 1, as.vector(prob_draws)),
+                      nrow = n_draws)
+  
+  # CHANGED: use danger_response (not y) — that's the column name from your fitting loop
+  obs_acc <- cummean(subj_data$danger_response == subj_data$dangerous)
+  rep_acc <- t(apply(yrep_post, 1, function(yr) {
+    cummean(yr == subj_data$dangerous)
+  }))
+  
+  ppc_summary <- tibble(
+    trial = seq_len(n_trials),
+    obs   = obs_acc,
+    q05   = apply(rep_acc, 2, quantile, 0.05),
+    q25   = apply(rep_acc, 2, quantile, 0.25),
+    q50   = apply(rep_acc, 2, quantile, 0.50),
+    q75   = apply(rep_acc, 2, quantile, 0.75),
+    q95   = apply(rep_acc, 2, quantile, 0.95)
+  )
+  
+  ggplot(ppc_summary, aes(x = trial)) +
+    geom_ribbon(aes(ymin = q05, ymax = q95), fill = "#56B4E9", alpha = 0.20) +
+    geom_ribbon(aes(ymin = q25, ymax = q75), fill = "#56B4E9", alpha = 0.40) +
+    geom_line(aes(y = q50), color = "#0072B2", linewidth = 0.8) +
+    geom_line(aes(y = obs), color = "#D55E00", linewidth = 1) +
+    scale_y_continuous(limits = c(0, 1)) +
+    labs(
+      title    = paste("PPC: Subject", subj),
+      subtitle = "Blue: 50% and 90% posterior predictive intervals | Orange: observed",
+      x = "Trial", y = "Cumulative Accuracy"
+    )
+})
+
+# Remove any skipped subjects and display all plots in a grid
+ppc_plots <- ppc_plots[!sapply(ppc_plots, is.null)]
+wrap_plots(ppc_plots)
+```
+
+
+
+
+
+# PRIOR-POSTERIOR UPDATE CHECK - EXPERIMENTAL DATA
+```{r}
+# single participant
+subjects <- unique(exp_data$subject)
+
+set.seed(2026)
+n_prior <- 4000
+
+# Prior draws are the same for all subjects — sample once
+prior_df <- tibble(
+  `w[4]` = runif(n_prior),
+  log_c  = rnorm(n_prior, log(2), 1),
+  c      = exp(log_c),
+  bias   = rbeta(n_prior, 1, 1)
+)
+
+# pp_panel — CHANGED: removed true_val and geom_vline since no ground truth for real participants
+pp_panel <- function(prior_x, post_x, label) {
+  tibble(
+    x      = c(prior_x, post_x),
+    source = c(rep("Prior",     length(prior_x)),
+               rep("Posterior", length(post_x)))
+  ) %>%
+    ggplot(aes(x = x, fill = source, color = source)) +
+    geom_density(alpha = 0.4, linewidth = 0.5) +
+    scale_fill_manual(values  = c(Prior = "grey60", Posterior = "#0072B2")) +
+    scale_color_manual(values = c(Prior = "grey40", Posterior = "#0072B2")) +
+    labs(title = label, x = NULL, y = "Density") +
+    theme(legend.position = "bottom")
+}
+
+# Loop over subjects and build a 2x2 panel per subject
+pp_update_plots <- map(subjects, function(subj) {
+  
+  subj_padded <- sprintf("%02d", subj)
+  fit_path <- glue::glue("{main_path}src/stan/gcm_subj{subj_padded}_fit.rds")
+  
+  if (!file.exists(fit_path)) {
+    message("No fit found for subject ", subj, " — skipping")
+    return(NULL)
+  }
+  fit_subj <- readRDS(fit_path)
+  
+  # Extract posterior draws for this subject
+  draws_df <- as_draws_df(
+    fit_subj$draws(variables = c("w[4]", "log_c", "c", "bias"))
+  )
+  
+  p1 <- pp_panel(prior_df$`w[4]`, draws_df$`w[4]`, "w[4] — attention to arms up")
+  p2 <- pp_panel(prior_df$log_c,  draws_df$log_c,  "log(c) — computational scale")
+  p3 <- pp_panel(prior_df$c,      draws_df$c,       "c — natural scale")
+  p4 <- pp_panel(prior_df$bias,   draws_df$bias,    "bias")
+  
+  (p1 | p2) / (p3 | p4) +
+    plot_annotation(
+      title    = paste("Prior-Posterior Update — Subject", subj),
+      subtitle = "Session 2 | Grey: prior, Blue: posterior"
+    )
+})
+
+# Remove skipped subjects
+pp_update_plots <- pp_update_plots[!sapply(pp_update_plots, is.null)]
+
+# Display one at a time — change index to view different subjects
+pp_update_plots[[1]]  # subject 1
+pp_update_plots[[2]]  # subject 2
+```
+```{r}
+# all participants
+
+# Plot subjects 1-9
+wrap_plots(pp_update_plots[1:9], ncol = 3) +
+  plot_annotation(title = "Prior-Posterior Update — Subjects 1-9")
+
+# Plot subjects 10-18
+wrap_plots(pp_update_plots[10:18], ncol = 3) +
+  plot_annotation(title = "Prior-Posterior Update — Subjects 10-18")
+
+# Plot subjects 19-27
+wrap_plots(pp_update_plots[19:27], ncol = 3) +
+  plot_annotation(title = "Prior-Posterior Update — Subjects 19-27")
+```
+
+
+
+
+# JOINT POSTERIOR GEOMETRY - EXPERIMENTAL DATA
+```{r}
+subjects <- unique(exp_data$subject)
+
+mcmc_pairs_plots <- map(subjects, function(subj) {
+  
+  subj_padded <- sprintf("%02d", subj)
+  fit_path <- glue::glue("{main_path}src/stan/gcm_subj{subj_padded}_fit.rds")
+  
+  if (!file.exists(fit_path)) {
+    message("No fit found for subject ", subj, " — skipping")
+    return(NULL)
+  }
+  fit_subj <- readRDS(fit_path)
+  
+  bayesplot::mcmc_pairs(
+    fit_subj$draws(c("log_c", "w[4]", "bias")),
+    diag_fun     = "dens",
+    off_diag_fun = "hex"
+  )
+})
+
+mcmc_pairs_plots <- mcmc_pairs_plots[!sapply(mcmc_pairs_plots, is.null)]
+mcmc_pairs_plots
+```
+
+
+
+
+
+
+
+
+LOO with PARETO-K DIAGNOSTICS - Check for issues with influential data points - experimental data
+
+```{r}
+subjects <- unique(exp_data$subject)
+
+loo_plots <- map(subjects, function(subj) {
+  
+  subj_padded <- sprintf("%02d", subj)
+  fit_path <- glue::glue("{main_path}src/stan/gcm_subj{subj_padded}_fit.rds")
+  
+  if (!file.exists(fit_path)) {
+    message("No fit found for subject ", subj, " — skipping")
+    return(NULL)
+  }
+  fit_subj <- readRDS(fit_path)
+  
+  log_lik_mat <- fit_subj$draws("log_lik", format = "matrix")
+  loo_obj     <- loo::loo(log_lik_mat, cores = 4)
+  
+  # Extract pareto k values as a ggplot using bayesplot
+  k_vals <- loo_obj$diagnostics$pareto_k
+  
+  tibble(
+    trial   = seq_along(k_vals),
+    pareto_k = k_vals
+  ) %>%
+    ggplot(aes(x = trial, y = pareto_k)) +
+    geom_point(aes(color = pareto_k > 0.7), size = 1.5) +
+    geom_hline(yintercept = 0.7, linetype = "dashed", color = "red") +
+    scale_color_manual(values = c("FALSE" = "steelblue", "TRUE" = "red"),
+                       guide  = "none") +
+    scale_y_continuous(limits = c(0, max(1, max(k_vals) + 0.1))) +
+    labs(
+      title = paste("Subject", subj),
+      x     = "Trial",
+      y     = "Pareto k"
+    ) +
+    theme_minimal(base_size = 9) +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+})
+
+loo_plots <- loo_plots[!sapply(loo_plots, is.null)]
+
+# Split into groups of 9
+subject_groups <- split(loo_plots, ceiling(seq_along(loo_plots) / 9))
+
+walk(seq_along(subject_groups), function(i) {
+  print(
+    wrap_plots(subject_groups[[i]], ncol = 3) +
+      plot_annotation(
+        title    = paste0("PSIS-LOO Pareto-k — Subjects ", (i-1)*9 + 1, "-", min(i*9, length(loo_plots))),
+        subtitle = "Red dashed line = 0.7 threshold | Red points = problematic"
+      )
+  )
+})
+```
+
+
+
+
+# PARAMETER ESTIMATES
+```{r}
+# Extracting participant-level parameter estimates
+subjects <- unique(exp_data$subject)
+
+exp_estimates <- map_dfr(subjects, function(subj) {
+  
+  subj_padded <- sprintf("%02d", subj)
+  fit_path <- glue::glue("{main_path}src/stan/gcm_subj{subj_padded}_fit.rds")
+  
+  if (!file.exists(fit_path)) {
+    message("No fit found for subject ", subj, " — skipping")
+    return(NULL)
+  }
+  fit_subj <- readRDS(fit_path)
+  
+  fit_subj$summary(
+    variables = c("w[1]", "w[2]", "w[3]", "w[4]", "w[5]", "log_c", "c", "bias")
+  ) %>%
+    mutate(subject = subj) %>%
+    select(subject, everything())
+})
+```
+
+
+
+```{r}
+# Plot key parameters
+p_w4 <- exp_estimates %>%
+  filter(variable == "w[4]") %>%
+  ggplot(aes(x = reorder(subject, mean), y = mean)) +
+  geom_col(fill = "steelblue") +
+  labs(
+    title = "Empirical fit: attention to feature 4 by participant",
+    x = "Participant",
+    y = "Posterior mean w[4]"
+  ) +
+  theme_bw()
+
+p_c <- exp_estimates %>%
+  filter(variable == "c") %>%
+  ggplot(aes(x = reorder(subject, mean), y = mean)) +
+  geom_col(fill = "coral") +
+  labs(
+    title = "Empirical fit: sensitivity c by participant",
+    x = "Participant",
+    y = "Posterior mean c"
+  ) +
+  theme_bw()
+
+p_bias <- exp_estimates %>%
+  filter(variable == "bias") %>%
+  ggplot(aes(x = reorder(subject, mean), y = mean)) +
+  geom_col(fill = "darkseagreen") +
+  labs(
+    title = "Empirical fit: danger-response bias by participant",
+    x = "Participant",
+    y = "Posterior mean bias"
+  ) +
+  theme_bw()
+
+p_w4 / p_c / p_bias
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
