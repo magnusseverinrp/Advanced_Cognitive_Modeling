@@ -18,7 +18,7 @@ pacman::p_load(
   hexbin
 )
 
-main_path <- "/Users/LauraSoerineVoldgaard/Library/Mobile Documents/com~apple~CloudDocs/CogSci/Master/8. semester/ACM/Portfolios/Advanced_Cognitive_Modeling/Assignment04/"
+main_path <- "/Users/mattie/Desktop/Masters/ACM/AdvancedCognitiveModelling/Advanced_Cognitive_Modeling/Assignment04/"
 
 knitr::opts_knit$set(root.dir = main_path)
 
@@ -42,7 +42,7 @@ theme_set(theme_classic())
 ```{r}
 # Flag to control whether to regenerate simulation/fitting results for the knitted files
 # Set to TRUE to rerun everything (takes time!), FALSE to load saved results.
-regenerate_simulations <- TRUE 
+regenerate_simulations <- FALSE 
 
 library(tidyverse)
 set.seed(42)
@@ -321,187 +321,214 @@ mod_gcm_single <- cmdstan_model(stan_file_gcm_single)
 ```
 
 
-# FIT FOR SINGLE AGENT
+# FIT FOR SINGLE AGENT x 3 Agents
+
 ```{r}
-agent_to_fit <- sim_data |>
-  filter(
-    round(w4_true, 1) == 0.6,
-    abs(log_c_true - log(2.0)) == min(abs(log_c_true - log(2.0)))
-  ) |>
-  filter(agent_id == min(agent_id)) |>
-  slice(1:total_trials)
-
-stopifnot(nrow(agent_to_fit) == total_trials)
-
-gcm_data_single <- list(
-  N_total           = nrow(agent_to_fit),
-  N_features        = 5L,
-  y                 = as.integer(agent_to_fit$sim_response),
-  obs               = as.matrix(agent_to_fit[, c("feature1", "feature2", "feature3", "feature4", "feature5")]),
-  danger_feedback      = as.integer(agent_to_fit$danger_feedback),
-  prior_w_alpha     = rep(1, 5),
-  prior_log_c_mu    = log(2), 
-  prior_log_c_sigma = 1, 
-  prior_bias_alpha  = 1,
-  prior_bias_beta   = 1,
-  run_diagnostics   = 1L
+# Define the 3 target agents
+target_agents <- list(
+  low_w_low_c  = list(w4 = 0.2, c = 0.5),
+  mid_w_mid_c  = list(w4 = 0.6, c = 2.0), # this was the OG single fit
+  high_w_high_c = list(w4 = 0.8, c = 5.0)
 )
+```
 
-# SINGLE AGENT FIT PATH
-fit_filepath_single <- glue::glue("{main_path}src/stan/ch12_gcm_single_fit.rds")
 
-if (regenerate_simulations || !file.exists(fit_filepath_single)) {
-  pf_single <- tryCatch(
+```{r}
+# Function to pull one agent's rows from sim_data
+select_agent <- function(sim_data, w4_target, c_target, n_trials) {
+  sim_data |>
+    filter(
+      round(w4_true, 1) == w4_target,
+      abs(log_c_true - log(c_target)) == min(abs(log_c_true - log(c_target)))
+    ) |>
+    filter(agent_id == min(agent_id)) |>
+    slice(1:n_trials)
+}
+
+# Function to build the Stan data list from an agent tibble
+make_gcm_data <- function(agent_df) {
+  list(
+    N_total           = nrow(agent_df),
+    N_features        = 5L,
+    y                 = as.integer(agent_df$sim_response),
+    obs               = as.matrix(agent_df[, paste0("feature", 1:5)]),
+    danger_feedback   = as.integer(agent_df$danger_feedback),
+    prior_w_alpha     = rep(1, 5),
+    prior_log_c_mu    = log(2),
+    prior_log_c_sigma = 1,
+    prior_bias_alpha  = 1,
+    prior_bias_beta   = 1,
+    run_diagnostics   = 1L
+  )
+}
+```
+
+
+```{r}
+# Fit loop
+fits_gcm <- list()
+
+# Store agent data alongside fits during the fitting loop
+agents_data <- list()
+
+for (agent_name in names(target_agents)) {
+  params <- target_agents[[agent_name]]
+  agents_data[[agent_name]] <- select_agent(sim_data, params$w4, params$c, total_trials)
+  filepath   <- glue::glue("{main_path}src/stan/gcm_{agent_name}.rds")
+
+  if (!regenerate_simulations && file.exists(filepath)) {
+    fits_gcm[[agent_name]] <- readRDS(filepath)
+    cat(glue::glue("Loaded existing fit: {agent_name}\n\n"))
+    next
+  }
+
+  agent_df <- select_agent(sim_data, params$w4, params$c, total_trials)
+  stopifnot(nrow(agent_df) == total_trials)
+
+  stan_data <- make_gcm_data(agent_df)
+
+  pf <- tryCatch(
     mod_gcm_single$pathfinder(
-      data      = gcm_data_single,
+      data      = stan_data,
       seed      = 123,
       num_paths = 4,
       refresh   = 0
     ),
     error = function(e) {
-      message("Pathfinder failed — falling back to default initialisation.")
+      message(glue::glue("Pathfinder failed for {agent_name} — using default init."))
       NULL
     }
   )
 
-  fit_gcm_single <- mod_gcm_single$sample(
-    data            = gcm_data_single,
-    init            = pf_single,
+  fit <- mod_gcm_single$sample(
+    data            = stan_data,
+    init            = pf,
     seed            = 123,
     chains          = 4,
-    parallel_chains = min(4, availableCores()),
+    parallel_chains = min(4, parallelly::availableCores()),
     iter_warmup     = 500,
     iter_sampling   = 1500,
     refresh         = 300,
     adapt_delta     = 0.9
   )
-  fit_gcm_single$save_object(fit_filepath_single)
-  cat("Single-agent model fitted and saved.\n")
-} else {
-  fit_gcm_single <- readRDS(fit_filepath_single)
-  cat("Loaded existing single-agent fit.\n")
+
+  fit$save_object(filepath)
+  fits_gcm[[agent_name]] <- fit
+  cat(glue::glue("Fitted and saved: {agent_name}\n\n"))
 }
 ```
 
-READ SINGLE AGENT FIT IN 
+
+
+READ EACH SINGLE AGENT FIT IN 
 ```{r}
-readRDS(glue::glue("{main_path}src/stan/ch12_gcm_single_fit.rds"))
+fits_gcm <- list()
+
+for (agent_name in names(target_agents)) {
+  filepath <- glue::glue("{main_path}src/stan/gcm_{agent_name}.rds")
+  fits_gcm[[agent_name]] <- readRDS(filepath)
+}
 
 ```
 
 
 MODEL FIT - MCMC Diagnostics
 
+
 ```{r}
-# Trace and Rank plots
-bayesplot::mcmc_trace(
-    fit_gcm_single$draws(c("log_c", "w[4]", "bias")),
+# Trace plots 
+trace_plots <- purrr::imap(fits_gcm, \(fit, agent_name) {
+  bayesplot::mcmc_trace(
+    fit$draws(c("log_c", "w[4]", "bias")),
     facet_args = list(ncol = 1)
-  )
+  ) + ggtitle(agent_name)
+})
 
-bayesplot::mcmc_rank_overlay(
-    fit_gcm_single$draws(c("log_c", "w[4]", "bias"))
-  )
+wrap_plots(trace_plots, ncol = 3)
+
+# Rank overlay plots
+rank_plots <- purrr::imap(fits_gcm, \(fit, agent_name) {
+  bayesplot::mcmc_rank_overlay(
+    fit$draws(c("log_c", "w[4]", "bias"))
+  ) + ggtitle(agent_name)
+})
+
+wrap_plots(rank_plots, ncol = 3)
+
+# Diagnostic summaries
+purrr::iwalk(fits_gcm, \(fit, agent_name) {
+  cat("\n──", agent_name, "──\n")
+  print(fit$diagnostic_summary())
+})
+
+# R-hat / ESS table
+purrr::imap_dfr(fits_gcm, \(fit, agent_name) {
+  fit$summary(variables = c("w[1]","w[2]","w[3]","w[4]","w[5]","log_c","c","bias")) |>
+    as.data.frame() |>
+    select(variable, mean, rhat, ess_bulk, ess_tail) |>
+    mutate(agent = agent_name, .before = 1)
+}) |> print()
 ```
 
-# Check for Divergent Transitions - Chain level diagnostics
-```{r}
-fit_gcm_single$diagnostic_summary()
-```
-
-Here we can see that no chains diverged, and the minimum E-BFMI (Energy Bayesian Fraction of Missing Information) > 0.3, which is good. The sampler never hit the maximum allowed tree depth during sampling which means that it stopped naturally and it is working efficiently.
-
-
-# Check R-hat, EBFMI and ESS metrics
-```{r}
-fit_summary <- fit_gcm_single$summary(variables = c("w[1]", "w[2]", "w[3]", "w[4]", "w[5]", "log_c", "c", "bias"))
-fit_summary <- as.data.frame(fit_summary)
-
-print(fit_summary %>% select(variable, mean, rhat, ess_bulk, ess_tail))
-```
-
-The R-hat values are all < 1.1, which is good. And the ess bulk and tail are both > 1000, meaning there are effective samples in the center and tails of the distribution. Overall, the MCMC diagnostics battery shows good convergence and  sampling.
 
 ## Model Checks - single subject
 
 PRIOR PREDICTIVE CHECK
 ```{r}
-n_prior_samples <- 500
-
-# Define prior distributions for the parameters
-prior_draws <- tibble(
-  sample_id = seq_len(n_prior_samples),
-  log_c = rnorm(n_prior_samples, log(2), 1),
-  w4 = runif(n_prior_samples),
-  bias = rbeta(n_prior_samples, 1, 1)
-) %>% 
-  mutate( c_true = exp(log_c),
-          w_remaining = (1-w4) / 4,
-          w1 = w_remaining,
-          w2 = w_remaining,
-          w3 = w_remaining,
-          w5 = w_remaining)
-
-ppc_schedule <- make_subject_schedule(sim_grid, n_blocks, seed = 123)
-
-
-# prior predictive curves
-prior_pred_curves <- pmap_dfr(
-  list(
-    sample_id = prior_draws$sample_id, # sample ID
-    log_c = prior_draws$log_c, # log sensitivity
-    w4 = prior_draws$w4, # attention weight on feature 4
-    bias = prior_draws$bias # response bias
-  ),
-  
-  function(sample_id, log_c, w4, bias){
-    c <- exp(log_c) # convert log sensitivity back to natural scale
-    sim <- gcm_simulate(
-      w = c((1-w4)/4, (1-w4)/4, (1-w4)/4, w4, (1-w4)/4), # attention weights
-      c = c, # sensitivity
-      bias = bias, # response bias
-      features = ppc_schedule |> dplyr::select(feature1, feature2, feature3, feature4, feature5), # stimulus features
-      danger = ppc_schedule$danger_feedback # true category labels
-    )
-    tibble(
-      sample_id = sample_id,
-      trial = seq_len(nrow(ppc_schedule)),
-      correct = as.integer(sim$sim_response == ppc_schedule$danger_feedback)
-    ) %>% 
-      mutate(cum_acc = cumsum(correct) / row_number())
-  }
-)
-
-# summarise prior predictive curves to get quantiles of cumulative accuracy across trials
-prior_pred_summary <- prior_pred_curves %>% 
-  group_by(trial) %>% 
-  summarise(
-    q05 = quantile(cum_acc, 0.05),
-    q25 = quantile(cum_acc, 0.25),
-    q50 = median(cum_acc),
-    q75 = quantile(cum_acc, 0.75),
-    q95 = quantile(cum_acc, 0.95),
-    .groups = "drop"
+make_prior_pred_plot <- function(agent_name, n_prior_samples = 500) {
+  prior_draws <- tibble(
+    sample_id = seq_len(n_prior_samples),
+    log_c     = rnorm(n_prior_samples, log(2), 1),
+    w4        = runif(n_prior_samples),
+    bias      = rbeta(n_prior_samples, 1, 1)
   )
 
-# plot preior predictive check
-ggplot(prior_pred_summary, aes(x = trial)) +
-  geom_ribbon(aes(ymin = q05, ymax = q95), fill = "#56B4E9", alpha = 0.20) +
-  geom_ribbon(aes(ymin = q25, ymax = q75), fill = "#56B4E9", alpha = 0.40) +
-  geom_line(aes(y = q50), color = "#0072B2", linewidth = 1) +
-  geom_hline(yintercept = 0.5, linetype = "dashed", color = "grey40") +
-  scale_y_continuous(limits = c(0, 1)) +
-  labs(
+  ppc_schedule <- make_subject_schedule(sim_grid, n_blocks, seed = 123)
+
+  pmap_dfr(
+    list(prior_draws$sample_id, prior_draws$log_c, prior_draws$w4, prior_draws$bias),
+    function(sample_id, log_c, w4, bias) {
+      sim <- gcm_simulate(
+        w       = c(rep((1 - w4) / 4, 3), w4, (1 - w4) / 4),
+        c       = exp(log_c),
+        bias    = bias,
+        features = ppc_schedule |> select(feature1:feature5),
+        danger  = ppc_schedule$danger_feedback
+      )
+      tibble(sample_id, trial = seq_len(nrow(ppc_schedule)),
+             correct = as.integer(sim$sim_response == ppc_schedule$danger_feedback)) |>
+        mutate(cum_acc = cumsum(correct) / row_number())
+    }
+  ) |>
+    group_by(trial) |>
+    summarise(q05 = quantile(cum_acc, .05), 
+              q25 = quantile(cum_acc, .25),
+              q50 = median(cum_acc),
+              q75 = quantile(cum_acc, .75), 
+              q95 = quantile(cum_acc, .95),
+              .groups = "drop") |>
+    ggplot(aes(x = trial)) +
+    geom_ribbon(aes(ymin = q05, ymax = q95), fill = "#56B4E9", alpha = .20) +
+    geom_ribbon(aes(ymin = q25, ymax = q75), fill = "#56B4E9", alpha = .40) +
+    geom_line(aes(y = q50), color = "#0072B2", linewidth = 1) +
+    geom_hline(yintercept = .5, linetype = "dashed", color = "grey40") +
+    scale_y_continuous(limits = c(0, 1)) +
+    labs(title = agent_name, x = "Trial", y = "Cumulative Accuracy")
+}
+
+prior_pred_plots <- purrr::map(names(target_agents), make_prior_pred_plot)
+
+wrap_plots(prior_pred_plots, ncol = 3) +
+  plot_annotation(
     title    = "Prior Predictive Check: GCM Learning Curves",
-    subtitle = "Ribbons: 50% and 90% prior predictive intervals; line: median\nPriors: log(c) ~ Normal(log 2, 1),  w ~ Dirichlet(1,1),  bias ~ Beta(1,1)",
-    x = "Trial", y = "Cumulative Accuracy"
+    subtitle = "Ribbons: 50% and 90% prior predictive intervals; line: median"
   )
 ```
 
 POSTERIOR PREDICTIVE CHECK
 ```{r}
-if (!is.null(fit_gcm_single)) {
-  prob_draws <- fit_gcm_single$draws("prob_danger1", format = "matrix")
+make_ppc_plot <- function(agent_name, fit, agent_df) {
+  prob_draws <- fit$draws("prob_danger1", format = "matrix")
   n_draws    <- nrow(prob_draws)
   n_trials   <- ncol(prob_draws)
 
@@ -509,85 +536,86 @@ if (!is.null(fit_gcm_single)) {
   yrep_post <- matrix(rbinom(n_draws * n_trials, 1, as.vector(prob_draws)),
                       nrow = n_draws)
 
-  obs_acc <- cummean(agent_to_fit$sim_response == agent_to_fit$danger_feedback)
-  rep_acc <- t(apply(yrep_post, 1, function(yr) {
-    cummean(yr == agent_to_fit$danger_feedback)
-  }))
+  obs_acc <- cummean(agent_df$sim_response == agent_df$danger_feedback)
+  rep_acc <- t(apply(yrep_post, 1, \(yr) cummean(yr == agent_df$danger_feedback)))
 
-  ppc_summary <- tibble(
-    trial = seq_len(n_trials),
-    obs   = obs_acc,
-    q05   = apply(rep_acc, 2, quantile, 0.05),
-    q25   = apply(rep_acc, 2, quantile, 0.25),
-    q50   = apply(rep_acc, 2, quantile, 0.50),
-    q75   = apply(rep_acc, 2, quantile, 0.75),
-    q95   = apply(rep_acc, 2, quantile, 0.95)
-  )
-
-  ggplot(ppc_summary, aes(x = trial)) +
-    geom_ribbon(aes(ymin = q05, ymax = q95), fill = "#56B4E9", alpha = 0.20) +
-    geom_ribbon(aes(ymin = q25, ymax = q75), fill = "#56B4E9", alpha = 0.40) +
-    geom_line(aes(y = q50), color = "#0072B2", linewidth = 0.8) +
+  tibble(
+    trial = seq_len(n_trials), obs = obs_acc,
+    q05 = apply(rep_acc, 2, quantile, .05), q25 = apply(rep_acc, 2, quantile, .25),
+    q50 = apply(rep_acc, 2, quantile, .50), q75 = apply(rep_acc, 2, quantile, .75),
+    q95 = apply(rep_acc, 2, quantile, .95)
+  ) |>
+    ggplot(aes(x = trial)) +
+    geom_ribbon(aes(ymin = q05, ymax = q95), fill = "#56B4E9", alpha = .20) +
+    geom_ribbon(aes(ymin = q25, ymax = q75), fill = "#56B4E9", alpha = .40) +
+    geom_line(aes(y = q50), color = "#0072B2", linewidth = .8) +
     geom_line(aes(y = obs), color = "#D55E00", linewidth = 1) +
     scale_y_continuous(limits = c(0, 1)) +
-    labs(
-      title    = "Posterior Predictive Check: Cumulative Accuracy",
-      subtitle = "Blue ribbons: 50% and 90% posterior predictive intervals\nOrange line: observed cumulative accuracy",
-      x = "Trial", y = "Cumulative Accuracy"
-    )
+    labs(title = agent_name, x = "Trial", y = "Cumulative Accuracy")
 }
+
+ppc_plots <- purrr::pmap(
+  list(names(fits_gcm), fits_gcm, agents_data),
+  make_ppc_plot
+)
+
+wrap_plots(ppc_plots, ncol = 3) +
+  plot_annotation(
+    title    = "Posterior Predictive Check: Cumulative Accuracy",
+    subtitle = "Blue: 50% and 90% posterior predictive intervals  |  Orange: observed"
+  )
 ```
  The cumulative accuracy is chosen for the PPC as it provides a better overview of the learning dynamics, compared to trial-level accuracy. The GCM's path dependence means that trial-level predictions are more variable and noisy, making it less insightful about model fit.
 
 
 PRIOR POSTERIOR UPDATE
 ```{r}
-if (!is.null(fit_gcm_single)) {
-  draws_df <- as_draws_df(
-    fit_gcm_single$draws(variables = c("w[4]", "log_c", "c", "bias"))
-  )
+pp_panel <- function(prior_x, post_x, true_val, label, ylim) {
+  tibble(x = c(prior_x, post_x),
+         source = c(rep("Prior", length(prior_x)), rep("Posterior", length(post_x)))) |>
+    ggplot(aes(x, fill = source, color = source)) +
+    geom_density(alpha = .4, linewidth = .5) +
+    geom_vline(xintercept = true_val, color = "red", linetype = "dashed", linewidth = .7) +
+    scale_fill_manual(values  = c(Prior = "grey60", Posterior = "#0072B2")) +
+    scale_color_manual(values = c(Prior = "grey40", Posterior = "#0072B2")) +
+    coord_cartesian(ylim = ylim) + 
+    labs(title = label, x = NULL, y = "Density") +
+    theme(legend.position = "bottom")
+}
 
-  true_w4    <- agent_to_fit$w4_true[4]
-  true_log_c <- agent_to_fit$log_c_true[1]
-  true_c     <- agent_to_fit$c_true[1]
-  true_bias  <- agent_to_fit$bias_true[1]
+make_ppu_plots <- function(agent_name, fit, agent_df) {
+  draws_df <- as_draws_df(fit$draws(c("w[4]", "log_c", "c", "bias")))
 
-  set.seed(2026)
-  n_prior <- 4000
+  n_prior  <- 4000
   prior_df <- tibble(
     `w[4]` = runif(n_prior),
     log_c  = rnorm(n_prior, log(2), 1),
-    c      = exp(log_c),
     bias   = rbeta(n_prior, 1, 1)
+  ) |> mutate(c = exp(log_c))
+
+  list(
+    w4    = pp_panel(prior_df$`w[4]`, draws_df$`w[4]`, agent_df$w4_true[1],    "w[4]",   ylim = c(0, 8)),
+    log_c = pp_panel(prior_df$log_c,  draws_df$log_c,  agent_df$log_c_true[1], "log(c)", ylim = c(0, 1.2)),
+    c     = pp_panel(prior_df$c,      draws_df$c,      agent_df$c_true[1],     "c",      ylim = c(0, 0.4)),
+    bias  = pp_panel(prior_df$bias,   draws_df$bias,   agent_df$bias_true[1],  "bias",   ylim = c(0, 8))
   )
-
-  pp_panel <- function(prior_x, post_x, true_val, label) {
-    tibble(
-      x      = c(prior_x, post_x),
-      source = c(rep("Prior", length(prior_x)),
-                 rep("Posterior", length(post_x)))
-    ) |>
-      ggplot(aes(x = x, fill = source, color = source)) +
-      geom_density(alpha = 0.4, linewidth = 0.5) +
-      geom_vline(xintercept = true_val, color = "red",
-                 linetype = "dashed", linewidth = 0.7) +
-      scale_fill_manual(values = c(Prior = "grey60", Posterior = "#0072B2")) +
-      scale_color_manual(values = c(Prior = "grey40", Posterior = "#0072B2")) +
-      labs(title = label, x = NULL, y = "Density") +
-      theme(legend.position = "bottom")
-  }
-
-  p1 <- pp_panel(prior_df$`w[4]`, draws_df$`w[4]`, true_w4, "w[4]")
-  p2 <- pp_panel(prior_df$log_c,  draws_df$log_c,  true_log_c, "log(c) — computational scale")
-  p3 <- pp_panel(prior_df$c,      draws_df$c,      true_c,     "c — natural scale")
-  p4 <- pp_panel(prior_df$bias,   draws_df$bias,   true_bias,  "bias")
-
-  (p1 | p2) / (p3 | p4) +
-    plot_annotation(
-      title    = "Prior–Posterior Update for the Single-Subject GCM",
-      subtitle = "Red dashed line = true generating value"
-    )
 }
+
+ppu_by_agent <- purrr::pmap(
+  list(names(fits_gcm), fits_gcm, agents_data),
+  make_ppu_plots
+)
+
+# Arrange as 4 rows (parameters) × 3 columns (agents)
+purrr::map(c("w4", "log_c", "c", "bias"), \(param) {
+  purrr::map(ppu_by_agent, \(agent_plots) agent_plots[[param]]) |>
+    wrap_plots(ncol = 3)
+}) |>
+  wrap_plots(ncol = 1) +
+  plot_annotation(
+    title    = "Prior–Posterior Update across Agents",
+    subtitle = "Red dashed = true generating value  |  Columns = agents"
+  )
 ```
 
 JOINT POSTERIOR GEOMETRY - Check for no correlation between parameters
