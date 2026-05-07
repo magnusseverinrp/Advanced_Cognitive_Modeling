@@ -454,13 +454,19 @@ rank_plots <- purrr::imap(fits_gcm, \(fit, agent_name) {
 })
 
 wrap_plots(rank_plots, ncol = 3)
+```
 
+
+```{r}
 # Diagnostic summaries
 purrr::iwalk(fits_gcm, \(fit, agent_name) {
   cat("\n──", agent_name, "──\n")
   print(fit$diagnostic_summary())
 })
+```
 
+
+```{r}
 # R-hat / ESS table
 purrr::imap_dfr(fits_gcm, \(fit, agent_name) {
   fit$summary(variables = c("w[1]","w[2]","w[3]","w[4]","w[5]","log_c","c","bias")) |>
@@ -475,7 +481,7 @@ purrr::imap_dfr(fits_gcm, \(fit, agent_name) {
 
 PRIOR PREDICTIVE CHECK
 ```{r}
-make_prior_pred_plot <- function(agent_name, n_prior_samples = 500) {
+make_prior_pred_plot <- function(n_prior_samples = 500) {
   prior_draws <- tibble(
     sample_id = seq_len(n_prior_samples),
     log_c     = rnorm(n_prior_samples, log(2), 1),
@@ -489,11 +495,11 @@ make_prior_pred_plot <- function(agent_name, n_prior_samples = 500) {
     list(prior_draws$sample_id, prior_draws$log_c, prior_draws$w4, prior_draws$bias),
     function(sample_id, log_c, w4, bias) {
       sim <- gcm_simulate(
-        w       = c(rep((1 - w4) / 4, 3), w4, (1 - w4) / 4),
-        c       = exp(log_c),
-        bias    = bias,
+        w        = c(rep((1 - w4) / 4, 3), w4, (1 - w4) / 4),
+        c        = exp(log_c),
+        bias     = bias,
         features = ppc_schedule |> select(feature1:feature5),
-        danger  = ppc_schedule$danger_feedback
+        danger   = ppc_schedule$danger_feedback
       )
       tibble(sample_id, trial = seq_len(nrow(ppc_schedule)),
              correct = as.integer(sim$sim_response == ppc_schedule$danger_feedback)) |>
@@ -501,28 +507,28 @@ make_prior_pred_plot <- function(agent_name, n_prior_samples = 500) {
     }
   ) |>
     group_by(trial) |>
-    summarise(q05 = quantile(cum_acc, .05), 
-              q25 = quantile(cum_acc, .25),
-              q50 = median(cum_acc),
-              q75 = quantile(cum_acc, .75), 
-              q95 = quantile(cum_acc, .95),
-              .groups = "drop") |>
+    summarise(
+      q05 = quantile(cum_acc, .05),
+      q25 = quantile(cum_acc, .25),
+      q50 = median(cum_acc),
+      q75 = quantile(cum_acc, .75), 
+      q95 = quantile(cum_acc, .95),
+      .groups = "drop"
+    ) |>
     ggplot(aes(x = trial)) +
     geom_ribbon(aes(ymin = q05, ymax = q95), fill = "#56B4E9", alpha = .20) +
     geom_ribbon(aes(ymin = q25, ymax = q75), fill = "#56B4E9", alpha = .40) +
     geom_line(aes(y = q50), color = "#0072B2", linewidth = 1) +
     geom_hline(yintercept = .5, linetype = "dashed", color = "grey40") +
     scale_y_continuous(limits = c(0, 1)) +
-    labs(title = agent_name, x = "Trial", y = "Cumulative Accuracy")
+    labs(
+      title    = "Prior Predictive Check: GCM Learning Curves",
+      subtitle = "Ribbons: 50% and 90% prior predictive intervals; line: median\nPriors: log(c) ~ Normal(log 2, 1), w ~ Dirichlet(1,1), bias ~ Beta(1,1)",
+      x = "Trial", y = "Cumulative Accuracy"
+    )
 }
 
-prior_pred_plots <- purrr::map(names(target_agents), make_prior_pred_plot)
-
-wrap_plots(prior_pred_plots, ncol = 3) +
-  plot_annotation(
-    title    = "Prior Predictive Check: GCM Learning Curves",
-    subtitle = "Ribbons: 50% and 90% prior predictive intervals; line: median"
-  )
+make_prior_pred_plot()
 ```
 
 POSTERIOR PREDICTIVE CHECK
@@ -620,25 +626,45 @@ purrr::map(c("w4", "log_c", "c", "bias"), \(param) {
 
 JOINT POSTERIOR GEOMETRY - Check for no correlation between parameters
 ```{r}
-if (!is.null(fit_gcm_single)) {
+# JOINT POSTERIOR GEOMETRY
+pairs_plots <- purrr::imap(fits_gcm, \(fit, agent_name) {
   bayesplot::mcmc_pairs(
-    fit_gcm_single$draws(c("log_c", "w[4]", "bias")),
+    fit$draws(c("log_c", "w[4]", "bias")),
     diag_fun     = "dens",
     off_diag_fun = "hex"
   )
-}
+})
+
+pairs_plots
 ```
 
 LOO with PARETO-K DIAGNOSTICS - Check for issues with influential data points
 ```{r}
-if (!is.null(fit_gcm_single)) {
-  log_lik_mat    <- fit_gcm_single$draws("log_lik", format = "matrix")
-  loo_gcm_single <- loo::loo(log_lik_mat, cores = 4)
-  print(loo_gcm_single)
+loo_plots <- purrr::imap(fits_gcm, \(fit, agent_name) {
+  log_lik_mat <- fit$draws("log_lik", format = "matrix")
+  loo_obj     <- loo::loo(log_lik_mat, cores = 4)
+  
+  cat("\n──", agent_name, "──\n")
+  print(loo_obj)
+  
+  k_vals <- loo_obj$diagnostics$pareto_k
+  
+  tibble(trial = seq_along(k_vals), pareto_k = k_vals) |>
+    ggplot(aes(x = trial, y = pareto_k)) +
+    geom_point(aes(color = pareto_k > 0.7), size = 1.5) +
+    geom_hline(yintercept = 0.7, linetype = "dashed", color = "red") +
+    scale_color_manual(values = c("FALSE" = "steelblue", "TRUE" = "red"),
+                       guide  = "none") +
+    coord_cartesian(ylim = c(0, max(1.0, max(k_vals, na.rm = TRUE) + 0.1))) +
+    labs(title = agent_name, x = "Trial", y = "Pareto k") +
+    theme(plot.title = element_text(face = "bold"))
+})
 
-  plot(loo_gcm_single, label_points = TRUE,
-       main = "PSIS-LOO Pareto-k diagnostics: Single-subject GCM")
-}
+wrap_plots(loo_plots, ncol = 3) +
+  plot_annotation(
+    title    = "PSIS-LOO Pareto-k Diagnostics",
+    subtitle = "Red dashed = 0.7 threshold | Red points = problematic"
+  )
 ```
 Pareto k estimates are good if k < 0.7.
 
