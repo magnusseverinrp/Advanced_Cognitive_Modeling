@@ -14,7 +14,8 @@ pacman::p_load(
   bayesplot,    # Plotting MCMC
   furrr,        # Parallel processing
   future,        # Future backend
-  patchwork
+  patchwork,
+  loo
 )
 
 main_path <- "/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/"
@@ -645,8 +646,6 @@ ggsave("mod_recov_weight.png", mod_recov_weight)
 ```
 
 
-
-
 ```{r}
 # Prior and posterior predictive checks
 extract_predictive_data <- function(fit, stan_data, scenario_name, target_var) {
@@ -784,8 +783,6 @@ generate_side_by_side_ppc <- function(fit_list, data_list, model_title) {
   
   return(combined_all)
 }
-
-
 ```
 
 
@@ -923,21 +920,21 @@ pba_w_self <- ggplot(pba_draws_self) +
   geom_density(aes(x = w_prior), fill = "red", colour = "black", alpha = 0.8) +
   geom_density(aes(x = w), fill = "blue", colour = "black", alpha = 0.8) +
   geom_vline(xintercept = 0.9, linetype = "dashed", color = "black", linewidth = 1) +
-  labs(title = "WBA w - Self", x = "w")
+  labs(title = "PBA w - Self", x = "w")
 
 # pba balanced w
 pba_w_balanced <- ggplot(pba_draws_balanced) +
   geom_density(aes(x = w_prior), fill = "red", colour = "black", alpha = 0.8) +
   geom_density(aes(x = w), fill = "blue", colour = "black", alpha = 0.8) +
   geom_vline(xintercept = 0.5, linetype = "dashed", color = "black", linewidth = 1) +
-  labs(title = "WBA w - Balanced", x = "w")
+  labs(title = "PBA w - Balanced", x = "w")
 
 # pba social w
 pba_w_social <- ggplot(pba_draws_social) +
   geom_density(aes(x = w_prior), fill = "red", colour = "black", alpha = 0.8) +
   geom_density(aes(x = w), fill = "blue", colour = "black", alpha = 0.8) +
   geom_vline(xintercept = 0.1, linetype = "dashed", color = "black", linewidth = 1) +
-  labs(title = "WBA w - Social", x = "w")
+  labs(title = "PBA w - Social", x = "w")
 
 
 # Combine
@@ -1029,7 +1026,7 @@ exploration_change_all_participants <- ggplot(cogsci_df, aes(x = Feedback, y = C
   theme_minimal()
 
 exploration_change_all_participants
-#ggsave("exploration_change_all_participants.jpg", plot = exploration_change_all_participants, width = 12, height = 10, dpi = 300)
+ggsave("exploration_change_all_participants.jpg", plot = exploration_change_all_participants, width = 12, height = 10, dpi = 300)
 ```
 
 ```{r}
@@ -1086,8 +1083,8 @@ if (regenerate_simulations || !all(file.exists(fit_wba_paths))) {
     fit_exp <- mod_weighted_reparam$sample(
       data          = data,
       chains        = 2,
-      iter_warmup   = 200,
-      iter_sampling = 1000,
+      iter_warmup   = 500,
+      iter_sampling = 2000,
       #fixed_param   = TRUE,
       refresh       = 0
     )
@@ -1259,7 +1256,6 @@ imap(fit_wba_exp, function(fit_exp, scenario) {
 })
 ```
 
-
 ```{r}
 # PBA trace plots - cogsci dataset
 imap(fit_pba_exp, function(fit_exp, scenario) {
@@ -1403,7 +1399,7 @@ cat("=== Proportional Bayesian Agent (PBA) Predictive Checks ===\n")
 
 
 ```{r}
-pid <- "40"
+pid <- "10"
 
 pba_single <- generate_side_by_side_ppc_exp(
   fit_list   = fit_pba_exp[pid],
@@ -1422,11 +1418,10 @@ print(wba_single)
 ppc_combined <- pba_single / wba_single
 
 ggsave(
-  filename = "id40_ppc_plot.png",
+  filename = "id10_ppc_plot.png",
   plot = ppc_combined
 )
 ```
-
 
 ```{r}
 # Get unique participant IDs from the data
@@ -1477,7 +1472,6 @@ print(round(loo_model_weights(list("PBA" = loo_pba, "WBA" = loo_wba), method = "
 
 ```
 
-
 ```{r}
 # Pool all trial-level log_lik across participants into one matrix
 log_lik_pba <- do.call(rbind, map(fit_pba_exp, ~ .x$draws("log_lik", format = "matrix")))
@@ -1517,7 +1511,6 @@ agent_elpd <- imap_dfr(fit_pba_exp, function(fit_pba, pid) {
   )
 
 ```
-
 
 ```{r}
 # Left: per-agent ELPD advantage
@@ -1559,8 +1552,8 @@ p_agent_scatter <- ggplot(agent_elpd,
   ) +
   theme(legend.position = "bottom")
 
-#ggsave("mod_comp_adv.png", p_agent_advantage)
-#ggsave("mod_comp_scatter.png", p_agent_scatter)
+ggsave("mod_comp_adv.png", p_agent_advantage)
+ggsave("mod_comp_scatter.png", p_agent_scatter)
 
 p_agent_advantage | p_agent_scatter
 ```

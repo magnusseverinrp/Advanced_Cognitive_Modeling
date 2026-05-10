@@ -10,12 +10,17 @@ data {
 
 }
 
+transformed data {
+  array[N] int<lower=0, upper=7> SecondRating_subtracted;
+  for (i in 1:N)
+    SecondRating_subtracted[i] = SecondRating[i] - 1;
+}
+
 parameters {
   real<lower=0, upper=1> w;  // Allocation to direct evidence
 }
 
 model {
-  for (i in 1:N) {
   vector[N] alpha_post;
   vector[N] beta_post;
   
@@ -26,9 +31,7 @@ model {
   beta_post  = 0.5 + w * (to_vector(total) - to_vector(FirstRating)) 
           + (1.0 - w) * (to_vector(total) - to_vector(GroupRating));
                              
-  target += beta_binomial_lpmf(SecondRating[i] - 1 | 7, alpha_post, beta_post);
-  // theta ~ beta_binomial(N_PSEUDO, alpha_post, beta_post);
-  }
+  target += beta_binomial_lpmf(SecondRating_subtracted | 7, alpha_post, beta_post);
 }
 
 
@@ -44,7 +47,7 @@ generated quantities {
     real beta_post  = 0.5 + w * (total[i] - FirstRating[i])
                           + (1.0 - w) * (total[i] - GroupRating[i]);
 
-    log_lik[i]        = beta_binomial_lpmf(SecondRating[i]-1 | 7, alpha_post, beta_post);
+    log_lik[i]        = beta_binomial_lpmf(SecondRating_subtracted[i] | 7, alpha_post, beta_post);
     posterior_pred[i] = 1+beta_binomial_rng(7, alpha_post, beta_post);
 
     real ap = 0.5 + w_prior * FirstRating[i] + (1.0 - w_prior) * GroupRating[i];

@@ -9,6 +9,12 @@ data {
   array[N] int<lower=0> total;
 }
 
+transformed data {
+  array[N] int<lower=0, upper=7> SecondRating_subtracted;
+  for (i in 1:N)
+    SecondRating_subtracted[i] = SecondRating[i] - 1;
+}
+
 parameters {
   real<lower=0, upper=1> rho;    // relative weight: w_d / (w_d + w_s)
   real<lower=0>          kappa;  // total weight: w_d + w_s
@@ -17,6 +23,7 @@ parameters {
 transformed parameters {
   real<lower=0> weight_direct = rho * kappa;
   real<lower=0> weight_social = (1.0 - rho) * kappa;
+
 }
 
 model {
@@ -25,15 +32,13 @@ model {
   // kappa: lognormal centered on 2 (SBA equivalent)
   target += lognormal_lpdf(kappa | log(2), 0.5);
 
-  for (i in 1:N) {
   // Vectorized likelihood
   vector[N] alpha_post = 0.5 + weight_direct * to_vector(FirstRating)
                              + weight_social * to_vector(GroupRating);
   vector[N] beta_post  = 0.5 + weight_direct * (to_vector(total) - to_vector(FirstRating))
                              + weight_social * (to_vector(total) - to_vector(GroupRating));
                              
-  target += beta_binomial_lpmf(SecondRating[i] - 1 | 7, alpha_post, beta_post);
-  }
+  target += beta_binomial_lpmf(SecondRating_subtracted | 7, alpha_post, beta_post);
 }
 
 generated quantities {
@@ -52,7 +57,7 @@ generated quantities {
     real beta_post  = 0.5 + weight_direct * (total[i] - FirstRating[i]) 
                          + weight_social * (total[i] - GroupRating[i]);
 
-    log_lik[i]        = beta_binomial_lpmf(SecondRating[i]-1 | 7, alpha_post, beta_post);
+    log_lik[i]        = beta_binomial_lpmf(SecondRating_subtracted | 7, alpha_post, beta_post);
     posterior_pred[i] = 1+beta_binomial_rng(7, alpha_post, beta_post);
 
     real ap = 0.5 + wd_prior * FirstRating[i] + ws_prior * GroupRating[i];
