@@ -57,7 +57,7 @@ generated quantities {
     real beta_post  = 0.5 + weight_direct * (total[i] - FirstRating[i]) 
                          + weight_social * (total[i] - GroupRating[i]);
 
-    log_lik[i]        = beta_binomial_lpmf(SecondRating_subtracted | 7, alpha_post, beta_post);
+    log_lik[i]        = beta_binomial_lpmf(SecondRating_subtracted[i] | 7, alpha_post, beta_post);
     posterior_pred[i] = 1+beta_binomial_rng(7, alpha_post, beta_post);
 
     real ap = 0.5 + wd_prior * FirstRating[i] + ws_prior * GroupRating[i];

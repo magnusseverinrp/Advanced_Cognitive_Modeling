@@ -1198,22 +1198,6 @@ p_kappa <- wba_estimates %>%
 
 (p_rho | p_kappa )/ p_w
 ```
-### Plotting kappa with outlier removed
-```{r}
-# WBA: kappa per participant without the five outliers (1=~80 and 4 < 3 million...)
-p_kappa <- wba_estimates %>%
-  filter(variable == "kappa", mean < 60) %>%
-  ggplot(aes(x = reorder(ID, mean), y = mean)) +
-  geom_col(fill = "coral") +
-  coord_cartesian(xlim = c(0, 40)) +
-  #geom_hline(aes(yintercept = mean(mean)), linewidth = 0.8) +
-  labs(title = "WBA: kappa", x = "Participants", y = "kappa") +
-  theme_bw() +
-  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
-
-p_kappa
-```
-
 
 # Checking diagnostics experimental
 
