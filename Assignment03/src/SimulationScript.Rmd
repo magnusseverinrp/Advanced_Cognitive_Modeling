@@ -574,97 +574,6 @@ recovery_data <- sim_grid |>
 }
 ```
 ```{r}
-# Model Recovery  #ATTEMPTED FIX 
-n_sims <- 20
-plan(multisession, workers = parallel::detectCores() - 2)
-if (regenerate_simulations || !file.exists("simmodels/ch10_model_recovery.rds")) {
-    sim_grid <- tribble(~sim_id, ~true_model, ~w,   ~rho,  ~kappa, ~scenario,
-  1, "PBA", 0.1, NA,   NA,  "PBA: Strong conformity",
-  2, "PBA", 0.5, NA,   NA,  "PBA: Balanced",
-  3, "PBA", 0.9, NA,   NA,  "PBA: Self focused",
-  4, "WBA", NA,  0.09, 11,  "WBA: Strong conformity",
-  5, "WBA", NA,  0.5,  1,   "WBA: Balanced",
-  6, "WBA", NA,  0.9,  1,   "WBA: Self focused"
-)
-
-  recovery_data <- sim_grid[rep(seq_len(nrow(sim_grid)), each = n_sims), ]  
-  results_list <- list()
-  
-  for (i in seq_len(nrow(recovery_data))) {
-    id       <- recovery_data$sim_id[[i]]
-    true_mod <- recovery_data$true_model[[i]]
-    
-    # Simulate fresh data on every iteration
-    df <- if (true_mod == "PBA") {
-      simulate_experiment(pba_agent, agent_args = list(w = recovery_data$w[[i]]), n_faces = 10)
-    } else {
-      simulate_experiment(wba_agent, agent_args = list(rho = recovery_data$rho[[i]], kappa = recovery_data$kappa[[i]]), n_faces = 10)
-    }
-    
-    # True parameters - derive wd/ws from whichever model generated the data
-    if (true_mod == "PBA") {
-      true_wd <- recovery_data$w[[i]]
-      true_ws <- 1 - recovery_data$w[[i]]
-    } else {
-      true_wd <- recovery_data$rho[[i]] * recovery_data$kappa[[i]]
-      true_ws <- (1 - recovery_data$rho[[i]]) * recovery_data$kappa[[i]]
-    }
-    
-    # Stan data comes from freshly simulated df
-    stan_data <- list(
-      N            = nrow(df),
-      FirstRating  = df$FirstRating,
-      SecondRating = df$SecondRating,
-      GroupRating  = df$GroupRating,
-      total        = df$total
-    )
-    
-    # Fit models
-    fit_p <- mod_pba$sample(data = stan_data,
-                                     chains = 2, iter_warmup = 300,
-                                     iter_sampling = 1500, refresh = 0,
-                                     show_messages = FALSE, save_warmup = TRUE,
-                                     output_dir = "simmodels/temp")
-    fit_w <- mod_weighted_reparam$sample(data = stan_data,
-                                 chains = 2, iter_warmup = 300,
-                                 iter_sampling = 1500, refresh = 0,
-                                 show_messages = FALSE, save_warmup = TRUE,
-                                 output_dir = "simmodels/temp")
-    loo_p <- fit_p$loo()
-    loo_w <- fit_w$loo()
-    weights <- loo::loo_model_weights(
-      list(PBA = loo_p, WBA = loo_w),
-      method = "stacking"
-    )
-    pba_draws <- fit_p$draws(format = "df", inc_warmup = FALSE)
-    wba_draws <- fit_w$draws(format = "df", inc_warmup = FALSE)
-    results_list[[i]] <- tibble(
-      sim_id     = id,
-      scenario   = recovery_data$scenario[[i]], 
-      true_model = true_mod,
-      true_wd    = true_wd,
-      true_ws    = true_ws,
-      weight_PBA = as.numeric(weights["PBA"]),
-      weight_WBA = as.numeric(weights["WBA"]),
-      pba_wd = mean(pba_draws$w),
-      pba_ws = mean(1 - pba_draws$w),
-      wba_wd = mean(wba_draws$rho * wba_draws$kappa),
-      wba_ws = mean((1 - wba_draws$rho) * wba_draws$kappa)
-    )
-  }
-  recovery_results <- bind_rows(results_list)
-  saveRDS(recovery_results, "simmodels/ch10_model_recovery.rds")
-} else {
-  recovery_results <- readRDS("simmodels/ch10_model_recovery.rds")
-}
-```
-```{r}
-loo::loo_compare(list(PBA = loo_p, WBA = loo_w))
-
-```
-
-
-```{r}
 binary_matrix_scenario <- recovery_results |>
   pivot_longer(cols = starts_with("weight_"),
                names_to = "predicted_model", values_to = "weight") |>
@@ -699,7 +608,7 @@ mod_recov_bin <- binary_matrix_scenario |>
   ) +
   theme(panel.grid = element_blank())
 
-ggsave("/Users/magnusseverin/Documents/GitHub/Advanced_Cognitive_Modeling/Assignment03/src/mod_recov_bin.png", mod_recov_bin)
+ggsave("mod_recov_bin.png", mod_recov_bin)
 
 mod_recov_bin
 ```
